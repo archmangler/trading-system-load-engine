@@ -1,0 +1,84 @@
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  namespace: ragnarok
+  name: ragnarok-ingress
+  annotations:
+    kubernetes.io/ingress.class: alb
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+spec:
+  rules:
+  - http:
+      paths:
+      - path: /sink-admin
+        pathType: Prefix
+        backend:
+          service:
+            name: sink-service
+            port:
+              number: 80
+      - path: /sink-orders
+        pathType: Prefix
+        backend:
+          service:
+            name: sink-service
+            port:
+              number: 80
+      - path: /ingest-status
+        pathType: Prefix
+        backend:
+          service:
+            name: ingestor-service
+            port:
+              number: 80
+      - path: /ingest-start
+        pathType: Prefix
+        backend:
+          service:
+            name: ingestor-service
+            port:
+              number: 80
+      - path: /ingestor-admin
+        pathType: Prefix
+        backend:
+          service:
+            name: ingestor-service
+            port:
+              number: 80
+      - path: /loader-admin
+        pathType: Prefix
+        backend:
+          service:
+            name: loader-service
+            port:
+              number: 80
+      - path: /selected
+        pathType: Prefix
+        backend:
+          service:
+            name: loader-service
+            port:
+              number: 80
+      - path: /ingestorselected
+        pathType: Prefix
+        backend:
+          service:
+            name: ingestor-service
+            port:
+              number: 80
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: grafana
+            port:
+              number: 80
+      - path: /prometheus
+        pathType: Prefix
+        backend:
+          service:
+            name: prometheus-service
+            port:
+              number: 8080
