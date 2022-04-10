@@ -15,24 +15,24 @@ spec:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: loader
+  name: streamer
   namespace: ragnarok
 spec:
   selector:
     matchLabels:
-      app: loader
+      app: streamer
   replicas: 1
   template:
     metadata:
       labels:
-        app: loader
+        app: streamer
     spec:
 #      nodeSelector:
 #        agentpool: np001
       serviceAccountName: internal-kubectl
       containers:
-      - name: loader
-        image: 605125156525.dkr.ecr.ap-southeast-1.amazonaws.com/loader:pulsar-0.0.54
+      - name: streamer
+        image: 605125156525.dkr.ecr.ap-southeast-1.amazonaws.com/streamer:pulsar-0.0.1
         imagePullPolicy: IfNotPresent
         env:
         - name: NAMESPACE
@@ -90,7 +90,7 @@ spec:
         - name: ADMIN_PASSWORD
           value: "somethingrandom"
         volumeMounts:
-          - name: loader-logs
+          - name: streamer-logs
             mountPath: /applogs
           - name: backups
             mountPath: /backups
@@ -98,7 +98,7 @@ spec:
           - name: tcp-80
             containerPort: 80
       volumes:
-        - name: loader-logs
+        - name: streamer-logs
           persistentVolumeClaim:
             claimName: loadlogs-claim
         - name: backups
@@ -111,14 +111,14 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: loader-service
+  name: streamer-service
   namespace: ragnarok
   labels:
-    app: loader-service
+    app: streamer-service
 spec:
   type: ClusterIP
   selector:
-    app: loader
+    app: streamer
   ports:
     - name: tcp-80
       port: 80
@@ -167,14 +167,14 @@ metadata:
 apiVersion: v1
 kind: Service
 metadata:
-  name: loader-service
+  name: streamer-service
   namespace: ragnarok
   labels:
-    app: loader
+    app: streamer
 spec:
   type: ClusterIP
   selector:
-    app: loader
+    app: streamer
   ports:
     - name: tcp-80
       port: 80

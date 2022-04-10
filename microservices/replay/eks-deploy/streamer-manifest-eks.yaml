@@ -2,24 +2,24 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: ingestor
+  name: streamer
   namespace: ragnarok
 spec:
   selector:
     matchLabels:
-      app.kubernetes.io/name: ingestor
+      app.kubernetes.io/name: streamer
   replicas: 1
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: ingestor
+        app.kubernetes.io/name: streamer
     spec:
 #      nodeSelector:
 #        agentpool: np001
       serviceAccountName: eks-s3-access
       containers:
-      - name: ingestor
-        image: archbungle/ingestor:pulsar-0.0.26
+      - name: streamer
+        image: archbungle/streamer:pulsar-0.0.3
         imagePullPolicy: IfNotPresent
         env:
         - name: S3_BUCKET_ADDRESS
@@ -37,7 +37,7 @@ spec:
         - name: PULSAR_BROKER_SERVICE_ADDRESS
           value: "pulsar://pulsar-broker.pulsar.svc.cluster.local:6650"
         - name: PULSAR_CONSUMER_SUBSCRIPTION_NAME
-          value: "sub002"
+          value: "sub007"
         - name: MESSAGE_TOPIC
           value: "ragnarok/transactions/requests"
         - name: KAFKA_BROKER_SERVICE_ADDRESS
@@ -88,12 +88,12 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: ingestor-service
+  name: streamer-service
   namespace: ragnarok
 spec:
   type: ClusterIP
   selector:
-    app.kubernetes.io/name: ingestor
+    app.kubernetes.io/name: streamer
   ports:
     - name: tcp-80
       port: 80

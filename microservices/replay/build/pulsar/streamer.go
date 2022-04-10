@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"strings"
 	"time"
@@ -13,12 +14,14 @@ import (
 	"github.com/gomodule/redigo/redis"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 //Redis data storage details
 var redisAuthPass string = os.Getenv("REDIS_PASS")
 var redisWriteConnectionAddress string = os.Getenv("REDIS_MASTER_ADDRESS") //address:port combination e.g  "my-release-redis-master.default.svc.cluster.local:6379"
 var port_specifier string = ":" + os.Getenv("METRICS_PORT_NUMBER")         // port for metrics service to listen on
+var loadStatus string = "pending"
 
 type Order struct {
 	InstrumentId   string `json:"instrumentId"`
@@ -33,6 +36,11 @@ type Order struct {
 	Nonce          string `json:"nonce"`
 	BlockWaitAck   string `json:"blockWaitAck "`
 	ClOrdId        string `json:"clOrdId"`
+}
+
+//Management Portal Component
+type adminPortal struct {
+	password string
 }
 
 //Metrics Instrumentation
@@ -230,7 +238,7 @@ func write_order_to_redis(msgCount int, errCount int, msgIndex int, d map[string
 	return msgCount, errCount
 }
 
-func main() {
+func theThing() {
 
 	//end of read stream
 	start := 16
@@ -263,13 +271,165 @@ func main() {
 	//get and process the stream in one function
 	streamContent := streamSequence(start, stop, reader, ctx)
 
-	/*DEBUG:
-	for k, v := range streamContent {
-		fmt.Println("msg key = ", k, " msg content = ", v)
-	}
-	*/
-
 	status, errorCount := loadSequenceData(streamContent)
+
 	fmt.Println("loading status: ", status, errorCount)
 }
 
+func newAdminPortal() *adminPortal {
+
+	//initialise the management portal with a loose requirement for username:password
+	password := os.Getenv("ADMIN_PASSWORD")
+
+	if password == "" {
+		panic("required env var ADMIN_PASSWORD not set")
+	}
+
+	return &adminPortal{password: password}
+}
+
+func (a adminPortal) selectionHandler(w http.ResponseWriter, r *http.Request) {
+
+	r.ParseForm()
+
+	selection := make(map[string]string)
+	params := r.URL.RawQuery
+
+	parts := strings.Split(params, "=")
+	selection[parts[0]] = parts[1]
+
+	if selection[parts[0]] == "streamer" {
+		fmt.Println("running stream sequence")
+
+		theThing()
+
+		/*if err != nil {
+			w.Write([]byte("<html> Woops! ... " + err.Error() + "</html>"))
+		} else {
+			w.Write([]byte("<html> selection result: " + strconv.Itoa(status) + "</html>"))
+		}*/
+	}
+
+	html_content := `
+	<body>
+	<br>
+    <form action="/streamer-admin" method="get">
+		   <input type="submit" name="back" value="back to main page">
+		   
+	</form>
+	</body>
+	`
+	w.Write([]byte(html_content))
+}
+
+func (a adminPortal) initialiseHandler(w http.ResponseWriter, r *http.Request) {
+
+	//Basic API Auth Example
+	//Disabled for Testing
+
+	/*user, pass, ok := r.BasicAuth()
+	if !ok || user != "admin" || pass != a.password {
+		w.WriteHeader(http.StatusUnauthorized)
+		w.Write([]byte("401 - unauthorized"))
+		return
+	}
+	*/
+
+	//don't block on this (the user can poll the status url for updates ...)
+	go func() {
+
+		theThing()
+		/*
+			if err != nil {
+				w.Write([]byte(err.Error()))
+			} else {
+				w.Write([]byte(status))
+			}
+		*/
+
+	}()
+
+}
+
+func (a adminPortal) statusHandler(w http.ResponseWriter, r *http.Request) {
+
+	//Basic API Auth Example
+	//Disabled for Testing
+
+	/*user, pass, ok := r.BasicAuth()
+	if !ok || user != "admin" || pass != a.password {
+		w.WriteHeader(http.StatusUnauthorized)
+		w.Write([]byte("401 - unauthorized"))
+		return
+	}
+	*/
+
+	w.Write([]byte(loadStatus))
+
+}
+
+func (a adminPortal) handler(w http.ResponseWriter, r *http.Request) {
+
+	//Very Crude web-based option selection menu defined directly in html, no templates, no styles ...
+	//<Insert Authentication Code Here>
+
+	html_content := `
+	<html><h1 style="font-family:verdana;">Trade Matching Load Data Ingestor</h1><br></html>
+	<body>
+	<div style="padding:10px;">
+	<h3 style="font-family:verdana;">Select Load Ingestion Operations:</h3>
+	  <br>
+
+	  <form action="/ingestorselected?param=LoadHistoricalData" method="post">
+	      <input type="submit" name="LoadHistoricalData" value="load from historical data" style="padding:20px;">
+	      <br>
+     </form>
+	 
+	 <form action="/ingestorselected?param=getLoadStatus" method="post" style="font-family:verdana;">
+			<input type="submit" name="getLoadStatus" value="get download status" style="padding:20px;">
+			<br>
+	 </form>  
+
+	 <form action="/ingestorselected?param=backupProcessedData" method="post" style="font-family:verdana;">
+			<input type="submit" name="backupProcessedData" value="backup processed data" style="padding:20px;">
+			<br>
+	 </form>  
+
+
+
+	</form>
+</div>
+	</body>
+	`
+	w.Write([]byte(html_content))
+}
+
+func main() {
+
+	//set up the metrics and management endpoint
+	//Prometheus metrics UI
+	http.Handle("/metrics", promhttp.Handler())
+
+	//Management UI for Load Data Management
+	//Administrative Web Interface
+	admin := newAdminPortal()
+
+	http.HandleFunc("/streamer-admin", admin.handler)
+	http.HandleFunc("/streamerselected", admin.selectionHandler)
+
+	//read the load status data (statusHandler)
+	http.HandleFunc("/streamer-status", admin.statusHandler)
+	//initiate data download
+	http.HandleFunc("/streamer-start", admin.initialiseHandler)
+
+	//serve static content
+	staticHandler := http.FileServer(http.Dir("./assets"))
+	http.Handle("/assets/", http.StripPrefix("/assets/", staticHandler))
+
+	err := http.ListenAndServe(port_specifier, nil)
+
+	if err != nil {
+		fmt.Println("Could not start http service endpoint for streamer service: ", err)
+	}
+
+}

@@ -47,6 +47,13 @@ spec:
             name: ingestor-service
             port:
               number: 80
+      - path: /streamer-admin
+        pathType: Prefix
+        backend:
+          service:
+            name: streamer-service
+            port:
+              number: 80
       - path: /loader-admin
         pathType: Prefix
         backend:
@@ -66,6 +73,13 @@ spec:
         backend:
           service:
             name: ingestor-service
+            port:
+              number: 80
+      - path: /streamerselected
+        pathType: Prefix
+        backend:
+          service:
+            name: streamer-service
             port:
               number: 80
       - path: /
