@@ -7,6 +7,8 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 
@@ -22,6 +24,7 @@ var redisAuthPass string = os.Getenv("REDIS_PASS")
 var redisWriteConnectionAddress string = os.Getenv("REDIS_MASTER_ADDRESS") //address:port combination e.g  "my-release-redis-master.default.svc.cluster.local:6379"
 var port_specifier string = ":" + os.Getenv("METRICS_PORT_NUMBER")         // port for metrics service to listen on
 var loadStatus string = "pending"
+var namespace string = "pulsar" //namespace of the pulsar queueing service
 
 type Order struct {
 	InstrumentId   string `json:"instrumentId"`
@@ -46,13 +49,13 @@ type adminPortal struct {
 //Metrics Instrumentation
 var (
 	inputSequenceOrdersLoadTotal = promauto.NewCounter(prometheus.CounterOpts{
-		Name: "sequence_orders_ingested_total",
-		Help: "The total number of sequenced orders ingested to redis",
+		Name: "sequence_orders_streamed_total",
+		Help: "The total number of sequenced orders streamed to redis",
 	})
 
 	inputSequenceOrdersLoadErrors = promauto.NewCounter(prometheus.CounterOpts{
-		Name: "sequence_orders_ingesterrors_total",
-		Help: "The total number of sequenced orders failed to ingest to redis",
+		Name: "sequence_orders_streamerrors_total",
+		Help: "The total number of sequenced orders failed to stream to redis",
 	})
 )
 
@@ -84,7 +87,7 @@ func streamSequence(start int, stop int, reader pulsar.Reader, ctx context.Conte
 
 		if err != nil {
 
-			log.Fatalf("Error reading from topic: %v", err)
+			log.Fatalf("(streamSequence) Error reading from topic: %v", err)
 
 		} else {
 
@@ -93,14 +96,14 @@ func streamSequence(start int, stop int, reader pulsar.Reader, ctx context.Conte
 			if outerCnt == start {
 
 				stream = true
-				fmt.Println("starting to count: (outer) ", outerCnt)
+				fmt.Println("(streamSequence) starting to count: (outer) ", outerCnt)
 
 			} else if outerCnt == stop {
 
 				stream = false
 
-				fmt.Println("stopping to count: (outer) ", outerCnt)
-				fmt.Println("reached stream end. breaking out.")
+				fmt.Println("(streamSequence) stopping to count: (outer) ", outerCnt)
+				fmt.Println("(streamSequence) reached stream end. breaking out.")
 
 				break
 			}
@@ -116,6 +119,8 @@ func streamSequence(start int, stop int, reader pulsar.Reader, ctx context.Conte
 
 		}
 	}
+
+	fmt.Println("(streamSequence) done collecting sequence", outerCnt)
 
 	return streamContent
 }
@@ -162,7 +167,7 @@ func loadSequenceData(streamContent map[int]string) (string, error) {
 
 	var err error
 
-	//Connect to redis store to dump ingested order data
+	//Connect to redis store to dump streamed order data
 	conn, err := redis.Dial("tcp", redisWriteConnectionAddress)
 
 	if err != nil {
@@ -189,7 +194,7 @@ func loadSequenceData(streamContent map[int]string) (string, error) {
 
 		fCnt, errCnt = write_order_to_redis(fCnt, errCnt, orderKey, order, conn)
 
-		loadStatus = "working"
+		loadStatus = "(loadSequenceData) working"
 
 	}
 
@@ -238,11 +243,7 @@ func write_order_to_redis(msgCount int, errCount int, msgIndex int, d map[string
 	return msgCount, errCount
 }
 
-func theThing() {
-
-	//end of read stream
-	start := 16
-	stop := 32
+func theThing(start int, stop int, w http.ResponseWriter, r *http.Request) {
 
 	// Instantiate a Pulsar client
 	client, err := pulsar.NewClient(pulsar.ClientOptions{
@@ -274,6 +275,85 @@ func theThing() {
 	status, errorCount := loadSequenceData(streamContent)
 
 	fmt.Println("loading status: ", status, errorCount)
+
+	//We need to do this for now due to: https://github.com/apache/pulsar/issues/15045
+	go func() {
+		reloadQueueHack(namespace, w, r) //temporary  hack to restart pular. Remove once resolved.
+	}()
+
+	w.Write([]byte("<html> loading sequence status: " + status + " errors: " + string(errorCount.Error()) + "</html>"))
+
+	status = errorCount.Error()
+
+	w.Write([]byte("<html> loading sequence status: " + status + "</html>"))
+
+}
+
+func reloadQueueHack(namespace string, w http.ResponseWriter, r *http.Request) (status error) {
+
+	// restart pulsar (kubectl rollout restart sts pulsar-broker -n pulsar)
+	//scale down to 0, then scale up to the current max.
+	fmt.Println("(reloadQueueHack) reloading pulsar ...")
+
+	arg1 := "kubectl"
+	arg2 := "rollout"
+	arg3 := "statefulset"
+	arg4 := "pulsar-broker"
+	arg5 := "--replicas=0"
+	arg6 := "--namespace"
+	arg7 := namespace
+
+	cmd := exec.Command(arg1, arg2, arg3, arg4, arg5, arg6, arg7)
+
+	time.Sleep(5 * time.Second) //really should have a loop here waiting for returns ...
+
+	out, err := cmd.Output()
+
+	if err != nil {
+
+		fmt.Println("(reloadQueueHack) ", err)
+		return status
+
+	}
+
+	temp := strings.Split(string(out), "\n")
+	theOutput := strings.Join(temp, `\n`)
+
+	//for the user
+	w.Write([]byte("<html> <br>restarted queue brokers: " + theOutput + "</html>"))
+
+	time.Sleep(5 * time.Second)
+
+	//check restart status (kubectl get pods -n pulsar -l component=broker) - loop and check for 1/1 on all rows
+
+	arg1 = "kubectl"
+	arg2 = "get"
+	arg3 = "pods"
+	arg4 = "--namespace"
+	arg5 = namespace
+	arg6 = "-l"
+	arg7 = "component=broker"
+
+	cmd = exec.Command(arg1, arg2, arg3, arg4, arg5, arg6, arg7)
+
+	time.Sleep(5 * time.Second) //really should have a loop here waiting for returns ...
+
+	out, err = cmd.Output()
+
+	if err != nil {
+
+		fmt.Println("(reloadQueueHack) ", err)
+		return status
+
+	}
+
+	temp = strings.Split(string(out), "\n")
+	theOutput = strings.Join(temp, `\n`)
+
+	//for the user
+	w.Write([]byte("<html> <br>restarted queue brokers: " + theOutput + "</html>"))
+
+	return err
 }
 
 func newAdminPortal() *adminPortal {
@@ -292,22 +372,41 @@ func (a adminPortal) selectionHandler(w http.ResponseWriter, r *http.Request) {
 
 	r.ParseForm()
 
+	fmt.Println("done parsing form")
+
 	selection := make(map[string]string)
+
 	params := r.URL.RawQuery
 
 	parts := strings.Split(params, "=")
+
+	w.Write([]byte("<html> got input parts ->" + string(parts[0]) + " </html>"))
+	w.Write([]byte("<html> got input parts ->" + string(parts[1]) + " </html>"))
+
 	selection[parts[0]] = parts[1]
 
-	if selection[parts[0]] == "streamer" {
-		fmt.Println("running stream sequence")
+	if selection[parts[0]] == "LoadStreamSequence" {
 
-		theThing()
+		start_of_sequence := strings.Join(r.Form["start"], " ")
+		end_of_sequence := strings.Join(r.Form["stop"], " ")
 
-		/*if err != nil {
-			w.Write([]byte("<html> Woops! ... " + err.Error() + "</html>"))
-		} else {
-			w.Write([]byte("<html> selection result: " + strconv.Itoa(status) + "</html>"))
-		}*/
+		fmt.Println("running stream sequence with stop = " + string(end_of_sequence) + " and start = " + string(start_of_sequence))
+		w.Write([]byte("<html> running stream sequence with stop = " + string(end_of_sequence) + " and start = " + string(start_of_sequence) + "</html>"))
+
+		start, _ := strconv.Atoi(start_of_sequence)
+		end, _ := strconv.Atoi(end_of_sequence)
+
+		theThing(start, end, w, r)
+
+	}
+
+	if selection[parts[0]] == "LoadStreamStatus" {
+
+		fmt.Println("loading stream sequence")
+		w.Write([]byte("<html> getting stream sequence status </html>"))
+
+		//Place streaming styatus function here
+
 	}
 
 	html_content := `
@@ -315,7 +414,6 @@ func (a adminPortal) selectionHandler(w http.ResponseWriter, r *http.Request) {
 	<br>
     <form action="/streamer-admin" method="get">
 		   <input type="submit" name="back" value="back to main page">
-		   
 	</form>
 	</body>
 	`
@@ -323,49 +421,16 @@ func (a adminPortal) selectionHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (a adminPortal) initialiseHandler(w http.ResponseWriter, r *http.Request) {
-
-	//Basic API Auth Example
-	//Disabled for Testing
-
-	/*user, pass, ok := r.BasicAuth()
-	if !ok || user != "admin" || pass != a.password {
-		w.WriteHeader(http.StatusUnauthorized)
-		w.Write([]byte("401 - unauthorized"))
-		return
-	}
-	*/
-
 	//don't block on this (the user can poll the status url for updates ...)
 	go func() {
 
-		theThing()
-		/*
-			if err != nil {
-				w.Write([]byte(err.Error()))
-			} else {
-				w.Write([]byte(status))
-			}
-		*/
+		fmt.Println("checking status of streaming ...")
 
 	}()
-
 }
 
 func (a adminPortal) statusHandler(w http.ResponseWriter, r *http.Request) {
-
-	//Basic API Auth Example
-	//Disabled for Testing
-
-	/*user, pass, ok := r.BasicAuth()
-	if !ok || user != "admin" || pass != a.password {
-		w.WriteHeader(http.StatusUnauthorized)
-		w.Write([]byte("401 - unauthorized"))
-		return
-	}
-	*/
-
 	w.Write([]byte(loadStatus))
-
 }
 
 func (a adminPortal) handler(w http.ResponseWriter, r *http.Request) {
@@ -374,30 +439,25 @@ func (a adminPortal) handler(w http.ResponseWriter, r *http.Request) {
 	//<Insert Authentication Code Here>
 
 	html_content := `
-	<html><h1 style="font-family:verdana;">Trade Matching Load Data Ingestor</h1><br></html>
+	<html><h1 style="font-family:verdana;">Trade Matching System Load Test Data Replay Service</h1><br></html>
 	<body>
 	<div style="padding:10px;">
-	<h3 style="font-family:verdana;">Select Load Ingestion Operations:</h3>
+	<h3 style="font-family:verdana;">Select Stream Replay Operations:</h3>
 	  <br>
 
-	  <form action="/ingestorselected?param=LoadHistoricalData" method="post">
-	      <input type="submit" name="LoadHistoricalData" value="load from historical data" style="padding:20px;">
+	 <form action="/streamerselected?param=LoadStreamSequence" method="post"">
+	 <input type="submit" name="LoadStreamSequence" value="load request sequence" style="padding:20px;" style="font-family:verdana;"> 
+ 
+	 <html style="font-family:verdana;">Start of sequence:</html><input type="text" name="start" >
+	 <html style="font-family:verdana;">End of Sequence:</html><input type="text" name="stop" >
+
+	 <form action="/streamerselected?param=LoadStreamStatus" method="post">
+	      <input type="submit" name="LoadStreamStatus" value="get streaming status" style="padding:20px;">
 	      <br>
      </form>
 	 
-	 <form action="/ingestorselected?param=getLoadStatus" method="post" style="font-family:verdana;">
-			<input type="submit" name="getLoadStatus" value="get download status" style="padding:20px;">
-			<br>
-	 </form>  
+	 </form>
 
-	 <form action="/ingestorselected?param=backupProcessedData" method="post" style="font-family:verdana;">
-			<input type="submit" name="backupProcessedData" value="backup processed data" style="padding:20px;">
-			<br>
-	 </form>  
-
-
-
-	</form>
 </div>
 	</body>
 	`
@@ -413,14 +473,14 @@ func main() {
 	//Management UI for Load Data Management
 	//Administrative Web Interface
 	admin := newAdminPortal()
-
 	http.HandleFunc("/streamer-admin", admin.handler)
 	http.HandleFunc("/streamerselected", admin.selectionHandler)
 
 	//read the load status data (statusHandler)
 	http.HandleFunc("/streamer-status", admin.statusHandler)
+
 	//initiate data download
-	http.HandleFunc("/streamer-start", admin.initialiseHandler)
+	http.HandleFunc("/streamer-start", admin.statusHandler)
 
 	//serve static content
 	staticHandler := http.FileServer(http.Dir("./assets"))

@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-FROM ubuntu:focal
+FROM ubuntu:bionic
 WORKDIR /app
 
 RUN apt-get update && apt-get install -y wget

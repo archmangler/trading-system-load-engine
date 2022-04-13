@@ -19,7 +19,7 @@ spec:
       serviceAccountName: eks-s3-access
       containers:
       - name: streamer
-        image: archbungle/streamer:pulsar-0.0.3
+        image: archbungle/streamer:pulsar-0.0.19
         imagePullPolicy: IfNotPresent
         env:
         - name: S3_BUCKET_ADDRESS
