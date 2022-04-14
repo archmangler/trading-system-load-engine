@@ -16,10 +16,10 @@ spec:
     spec:
 #      nodeSelector:
 #        agentpool: np001
-      serviceAccountName: eks-s3-access
+      serviceAccountName: streamer-internal-kubectl
       containers:
       - name: streamer
-        image: archbungle/streamer:pulsar-0.0.19
+        image: archbungle/streamer:pulsar-0.0.26d10
         imagePullPolicy: IfNotPresent
         env:
         - name: S3_BUCKET_ADDRESS
@@ -103,35 +103,45 @@ spec:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: modify-pods-to-sa
+  name: streamer-modify-pods-to-sa
   namespace: ragnarok
 subjects:
   - kind: ServiceAccount
-    name: internal-kubectl
+    name: streamer-internal-kubectl
+    namespace: ragnarok 
 roleRef:
   kind: Role
-  name: modify-pods
+  name: streamer-modify-pods
   apiGroup: rbac.authorization.k8s.io
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  name: modify-pods
+  name: streamer-modify-pods
   namespace: ragnarok
 rules:
-  - apiGroups: ["apps","extensions"]
+  - apiGroups: ["","apps","apps/v1","extensions"]
     resources:
+      - pods
       - deployments
+      - statefulsets
+      - statefulsets/scale
+      - statefulsets/status
     verbs:
       - get
-      - watch
       - list
-      - patch
       - delete
+      - scale
       - restart
+      - rollout
+      - watch
+      - create
+      - update
+      - deletecollection
+      - patch
 ---
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: internal-kubectl
+  name: streamer-internal-kubectl
   namespace: ragnarok

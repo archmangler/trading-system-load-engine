@@ -194,12 +194,13 @@ func loadSequenceData(streamContent map[int]string) (string, error) {
 
 		fCnt, errCnt = write_order_to_redis(fCnt, errCnt, orderKey, order, conn)
 
-		loadStatus = "(loadSequenceData) working"
+		loadStatus = "working"
 
 	}
 
 	loadStatus = "done"
-	fmt.Println("loading status: ", loadStatus)
+
+	fmt.Println("(loadSequenceData) loading status: ", loadStatus)
 
 	//report done
 	return status, err
@@ -220,6 +221,8 @@ func write_order_to_redis(msgCount int, errCount int, msgIndex int, d map[string
 	Nonce := d["nonce"]
 	BlockWaitAck := "1" // force to 1 or d["blockWaitAck"]
 	ClOrdId := d["clOrdId"]
+
+	loadStatus = "working"
 
 	//select correct DB (0)
 	conn.Do("SELECT", 5)
@@ -244,6 +247,10 @@ func write_order_to_redis(msgCount int, errCount int, msgIndex int, d map[string
 }
 
 func theThing(start int, stop int, w http.ResponseWriter, r *http.Request) {
+
+	//temp workaround. remove once resolved
+	//We need to do this for now due to: https://github.com/apache/pulsar/issues/15045
+	reloadQueueHack(namespace, w, r)
 
 	// Instantiate a Pulsar client
 	client, err := pulsar.NewClient(pulsar.ClientOptions{
@@ -277,9 +284,11 @@ func theThing(start int, stop int, w http.ResponseWriter, r *http.Request) {
 	fmt.Println("loading status: ", status, errorCount)
 
 	//We need to do this for now due to: https://github.com/apache/pulsar/issues/15045
-	go func() {
-		reloadQueueHack(namespace, w, r) //temporary  hack to restart pular. Remove once resolved.
-	}()
+	//go func() {
+
+	reloadQueueHack(namespace, w, r) //temporary  hack to restart pular. Remove once resolved.
+
+	//}()
 
 	w.Write([]byte("<html> loading sequence status: " + status + " errors: " + string(errorCount.Error()) + "</html>"))
 
@@ -293,65 +302,84 @@ func reloadQueueHack(namespace string, w http.ResponseWriter, r *http.Request) (
 
 	// restart pulsar (kubectl rollout restart sts pulsar-broker -n pulsar)
 	//scale down to 0, then scale up to the current max.
+	loadStatus = "pending"
+
 	fmt.Println("(reloadQueueHack) reloading pulsar ...")
 
 	arg1 := "kubectl"
 	arg2 := "rollout"
-	arg3 := "statefulset"
-	arg4 := "pulsar-broker"
-	arg5 := "--replicas=0"
+	arg3 := "restart"
+	arg4 := "sts"
+	arg5 := "pulsar-broker"
 	arg6 := "--namespace"
 	arg7 := namespace
 
+	fmt.Println("(reloadQueueHack) reloading with : " + arg1 + " " + arg2 + " " + arg3 + " " + arg4 + " " + arg5 + " " + arg6 + " " + arg7)
 	cmd := exec.Command(arg1, arg2, arg3, arg4, arg5, arg6, arg7)
-
-	time.Sleep(5 * time.Second) //really should have a loop here waiting for returns ...
 
 	out, err := cmd.Output()
 
-	if err != nil {
+	//debugging
+	fmt.Println("(reloadQueueHack) reload output: ", out, " errors: ", err)
 
+	if err != nil {
 		fmt.Println("(reloadQueueHack) ", err)
 		return status
-
+	} else {
+		fmt.Println("(reloadQueueHack) reload OK")
 	}
 
 	temp := strings.Split(string(out), "\n")
-	theOutput := strings.Join(temp, `\n`)
 
-	//for the user
-	w.Write([]byte("<html> <br>restarted queue brokers: " + theOutput + "</html>"))
+	for row := range temp {
 
-	time.Sleep(5 * time.Second)
+		fmt.Println("(reloadQueueHack) brokers status: ", temp[row])
 
-	//check restart status (kubectl get pods -n pulsar -l component=broker) - loop and check for 1/1 on all rows
+		w.Write([]byte("<html> <br>brokers status: " + temp[row] + "</html>"))
 
-	arg1 = "kubectl"
-	arg2 = "get"
-	arg3 = "pods"
-	arg4 = "--namespace"
-	arg5 = namespace
-	arg6 = "-l"
-	arg7 = "component=broker"
-
-	cmd = exec.Command(arg1, arg2, arg3, arg4, arg5, arg6, arg7)
-
-	time.Sleep(5 * time.Second) //really should have a loop here waiting for returns ...
-
-	out, err = cmd.Output()
-
-	if err != nil {
-
-		fmt.Println("(reloadQueueHack) ", err)
-		return status
+		loadStatus = "reloading"
 
 	}
 
-	temp = strings.Split(string(out), "\n")
-	theOutput = strings.Join(temp, `\n`)
+	for {
 
-	//for the user
-	w.Write([]byte("<html> <br>restarted queue brokers: " + theOutput + "</html>"))
+		//check restart status (kubectl get pods -n pulsar -l component=broker) - loop and check for 1/1 on all rows
+		//kubectl rollout status sts pulsar-broker --namespace pulsar
+		arg1 = "kubectl"
+		arg2 = "rollout"
+		arg3 = "status"
+		arg4 = "--namespace"
+		arg5 = namespace
+		arg6 = "sts"
+		arg7 = "pulsar-broker"
+
+		cmd = exec.Command(arg1, arg2, arg3, arg4, arg5, arg6, arg7)
+
+		out, err = cmd.Output()
+
+		if err != nil {
+			fmt.Println("(reloadQueueHack) ", err)
+			return status
+		} else {
+			fmt.Println("(reloadQueueHAck) Check reload status - OK")
+		}
+
+		if strings.Contains(string(out), "statefulset rolling update complete") {
+
+			fmt.Println("(reloadQueueHack) brokers status: ", string(out))
+			w.Write([]byte("<html> <br>broker status: " + string(out) + "</html>"))
+
+			loadStatus = "reloaded"
+
+			break
+
+		} else {
+			fmt.Println("(reloadQueueHack) checking brokers status: ")
+		}
+
+	}
+
+	fmt.Println("(reloadQueueHack) done reloading checks: err = ", err)
 
 	return err
 }
@@ -396,6 +424,8 @@ func (a adminPortal) selectionHandler(w http.ResponseWriter, r *http.Request) {
 		start, _ := strconv.Atoi(start_of_sequence)
 		end, _ := strconv.Atoi(end_of_sequence)
 
+		fmt.Println("reading from " + start_of_sequence + " to " + end_of_sequence)
+
 		theThing(start, end, w, r)
 
 	}
@@ -406,6 +436,7 @@ func (a adminPortal) selectionHandler(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("<html> getting stream sequence status </html>"))
 
 		//Place streaming styatus function here
+		w.Write([]byte(loadStatus))
 
 	}
 
@@ -420,17 +451,48 @@ func (a adminPortal) selectionHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(html_content))
 }
 
-func (a adminPortal) initialiseHandler(w http.ResponseWriter, r *http.Request) {
-	//don't block on this (the user can poll the status url for updates ...)
-	go func() {
-
-		fmt.Println("checking status of streaming ...")
-
-	}()
+func (a adminPortal) statusHandler(w http.ResponseWriter, r *http.Request) {
+	fmt.Println("(statusHandler) user requested load status")
+	w.Write([]byte(loadStatus))
 }
 
-func (a adminPortal) statusHandler(w http.ResponseWriter, r *http.Request) {
+func (a adminPortal) loadHandler(w http.ResponseWriter, r *http.Request) {
+
+	fmt.Println("(loadHandler) user requested specified sequence")
 	w.Write([]byte(loadStatus))
+
+	params := r.URL.RawQuery
+	fmt.Println("(loadHandler) parameter list (params): ", params)
+	parts := strings.Split(params, "=")
+
+	partsString := strings.Join(parts, " ")
+
+	fmt.Println("(loadHandler) parameter list: ", partsString)
+
+	//mangling out the parametes
+	parameterParts := strings.Split(partsString, "?")
+
+	startParams := parameterParts[0]
+	fmt.Println("(loadHandler) parameterParts[0]: ", startParams)
+
+	stopParams := parameterParts[1]
+	fmt.Println("(loadHandler) parameterParts[1]: ", stopParams)
+
+	start_of_sequence := strings.Split(startParams, " ")[1]
+	end_of_sequence := strings.Split(stopParams, " ")[1]
+
+	fmt.Println("(loadHandler) start, stop params: ", start_of_sequence, end_of_sequence)
+	fmt.Println("(loadHandler) running stream sequence with stop = " + string(end_of_sequence) + " and start = " + string(start_of_sequence))
+
+	fmt.Println("(loadHandler) reading from " + start_of_sequence + " to " + end_of_sequence)
+
+	sos, err_sos := strconv.Atoi(start_of_sequence)
+	eos, err_eos := strconv.Atoi(end_of_sequence)
+
+	fmt.Println("type conversion debug: ", sos, eos, err_sos, err_eos)
+
+	theThing(sos, eos, w, r)
+
 }
 
 func (a adminPortal) handler(w http.ResponseWriter, r *http.Request) {
@@ -479,8 +541,8 @@ func main() {
 	//read the load status data (statusHandler)
 	http.HandleFunc("/streamer-status", admin.statusHandler)
 
-	//initiate data download
-	http.HandleFunc("/streamer-start", admin.statusHandler)
+	//initiate data load in sequence
+	http.HandleFunc("/streamer-start", admin.loadHandler)
 
 	//serve static content
 	staticHandler := http.FileServer(http.Dir("./assets"))

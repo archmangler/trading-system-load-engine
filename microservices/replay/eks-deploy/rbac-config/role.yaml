@@ -1,17 +1,25 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  name: modify-pods
+  name: streamer-modify-pods
   namespace: pulsar
 rules:
-  - apiGroups: ["","apps"]
+  - apiGroups: ["","apps","apps/v1","extensions"]
     resources:
       - pods
-      - statefulsets
       - deployments
+      - statefulsets
+      - statefulsets/scale
+      - statefulsets/status
     verbs:
       - get
       - list
       - delete
       - scale
       - restart
+      - rollout
+      - watch
+      - create
+      - update
+      - deletecollection
+      - patch

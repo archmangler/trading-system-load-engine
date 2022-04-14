@@ -1,12 +1,13 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: modify-pods-to-sa
+  name: streamer-modify-pods-to-sa
   namespace: pulsar
 subjects:
   - kind: ServiceAccount
-    name: internal-kubectl
+    name: streamer-internal-kubectl
+    namespace: ragnarok
 roleRef:
   kind: Role
-  name: modify-pods
+  name: streamer-modify-pods
   apiGroup: rbac.authorization.k8s.io
