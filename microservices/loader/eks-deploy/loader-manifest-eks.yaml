@@ -19,17 +19,19 @@ spec:
       serviceAccountName: internal-kubectl
       containers:
       - name: loader
-        image: archbungle/loader:pulsar-0.0.61d31
+        image: archbungle/loader:pulsar-0.0.66d15
         imagePullPolicy: IfNotPresent
         env:
         - name: NAMESPACE
           value: "ragnarok"
         - name: INGESTOR_SERVICE_ADDRESS
           value: "http://ingestor-service.ragnarok.svc.cluster.local"
+        - name: REPLAY_SERVICE_ADDRESS
+          value: "http://streamer-service.ragnarok.svc.cluster.local"
         - name: NUM_JOBS
-          value: "1"
+          value: "20"
         - name: NUM_WORKERS
-          value: "1"
+          value: "20"
         - name: DEFAULT_REPLICA_MAX
           value: "10"
         - name: PULSAR_BROKER_SERVICE_ADDRESS
@@ -54,6 +56,8 @@ spec:
           value: "ragnarok-redis-replicas.redis.svc.cluster.local:6379"
         - name: REDIS_PASS
           value: "Yj7Oe21iHz"
+        - name: SEQUENCE_REPLAY_DB
+          value: "6"
         - name: CONSUMER_GROUP
           value: "cg001"
         - name: KCAT_PATH

@@ -28,7 +28,7 @@ spec:
         - name: API_BASE_URL
           value: "trading-api.dexp-qa.com"
         - name: TRADING_API_PASSWORD
-          value: "REDACTED"
+          value: "Eqonex@123456"
         - name: TRADING_API_USERNAME
           value: "ngocdf1_qa_indi_7uxp@mailinator.com"
         - name: TRADING_API_CLORID

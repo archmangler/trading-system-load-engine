@@ -21,6 +21,7 @@ import (
 
 //Redis data storage details
 var redisAuthPass string = os.Getenv("REDIS_PASS")
+var sequenceReplayDBindex, _ = strconv.Atoi(os.Getenv("SEQUENCE_REPLAY_DB"))
 var redisWriteConnectionAddress string = os.Getenv("REDIS_MASTER_ADDRESS") //address:port combination e.g  "my-release-redis-master.default.svc.cluster.local:6379"
 var port_specifier string = ":" + os.Getenv("METRICS_PORT_NUMBER")         // port for metrics service to listen on
 var loadStatus string = "pending"
@@ -187,6 +188,19 @@ func loadSequenceData(streamContent map[int]string) (string, error) {
 	//properly closed before exiting the main() function.
 	defer conn.Close()
 
+	//select correct DB sequenceReplayDBindex
+	result, err := conn.Do("SELECT", sequenceReplayDBindex)
+
+	if err != nil {
+
+		fmt.Println("(write_order_to_redis) failed to select redis db: ", sequenceReplayDBindex, err.Error())
+
+	} else {
+
+		fmt.Println("(write_order_to_redis) selecting redis db", sequenceReplayDBindex, result)
+
+	}
+
 	for orderKey, orderData := range streamContent {
 
 		//process to redis ...
@@ -224,9 +238,6 @@ func write_order_to_redis(msgCount int, errCount int, msgIndex int, d map[string
 
 	loadStatus = "working"
 
-	//select correct DB (0)
-	conn.Do("SELECT", 5)
-
 	//REDIFY
 	fmt.Println("inserting : ", InstrumentId, Symbol, UserId, Side, OrdType, Price, Price_scale, Quantity, Quantity_scale, Nonce, BlockWaitAck, ClOrdId)
 
@@ -250,7 +261,9 @@ func theThing(start int, stop int, w http.ResponseWriter, r *http.Request) {
 
 	//temp workaround. remove once resolved
 	//We need to do this for now due to: https://github.com/apache/pulsar/issues/15045
-	reloadQueueHack(namespace, w, r)
+
+	loadStatus = "reloading"
+	reloadQueueHack(namespace, loadStatus, w, r)
 
 	// Instantiate a Pulsar client
 	client, err := pulsar.NewClient(pulsar.ClientOptions{
@@ -285,8 +298,9 @@ func theThing(start int, stop int, w http.ResponseWriter, r *http.Request) {
 
 	//We need to do this for now due to: https://github.com/apache/pulsar/issues/15045
 	//go func() {
-
-	reloadQueueHack(namespace, w, r) //temporary  hack to restart pular. Remove once resolved.
+	loadStatus = "reloaded"
+	reloadQueueHack(namespace, loadStatus, w, r) //temporary  hack to restart pular. Remove once resolved.
+	loadStatus = "pending"
 
 	//}()
 
@@ -298,11 +312,11 @@ func theThing(start int, stop int, w http.ResponseWriter, r *http.Request) {
 
 }
 
-func reloadQueueHack(namespace string, w http.ResponseWriter, r *http.Request) (status error) {
+func reloadQueueHack(namespace string, ls string, w http.ResponseWriter, r *http.Request) (status error) {
 
 	// restart pulsar (kubectl rollout restart sts pulsar-broker -n pulsar)
 	//scale down to 0, then scale up to the current max.
-	loadStatus = "pending"
+	loadStatus = ls
 
 	fmt.Println("(reloadQueueHack) reloading pulsar ...")
 
@@ -336,8 +350,6 @@ func reloadQueueHack(namespace string, w http.ResponseWriter, r *http.Request) (
 		fmt.Println("(reloadQueueHack) brokers status: ", temp[row])
 
 		w.Write([]byte("<html> <br>brokers status: " + temp[row] + "</html>"))
-
-		loadStatus = "reloading"
 
 	}
 
@@ -435,7 +447,7 @@ func (a adminPortal) selectionHandler(w http.ResponseWriter, r *http.Request) {
 		fmt.Println("loading stream sequence")
 		w.Write([]byte("<html> getting stream sequence status </html>"))
 
-		//Place streaming styatus function here
+		//Place streaming status function here
 		w.Write([]byte(loadStatus))
 
 	}
@@ -454,6 +466,34 @@ func (a adminPortal) selectionHandler(w http.ResponseWriter, r *http.Request) {
 func (a adminPortal) statusHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Println("(statusHandler) user requested load status")
 	w.Write([]byte(loadStatus))
+}
+
+func (a adminPortal) refreshHandler(w http.ResponseWriter, r *http.Request) {
+
+	fmt.Println("(refreshHandler) user requested streaming queue reload. This will take a while ...")
+
+	loadStatus = "refreshing"
+
+	w.Write([]byte(loadStatus))
+
+	//don't bloc on this
+	go func() {
+
+		reloadQueueHack(namespace, loadStatus, w, r)
+
+	}()
+
+	for i := 0; i < 20; i++ {
+
+		w.Write([]byte(loadStatus))
+
+		fmt.Println("refreshing pulsar")
+
+		time.Sleep(2 * time.Second)
+
+	}
+
+	fmt.Println("(refreshHandler) done reloading pulsar streaming system.")
 }
 
 func (a adminPortal) loadHandler(w http.ResponseWriter, r *http.Request) {
@@ -543,6 +583,9 @@ func main() {
 
 	//initiate data load in sequence
 	http.HandleFunc("/streamer-start", admin.loadHandler)
+
+	//reload the pulsar streaming system using refreshHandler
+	http.HandleFunc("/streamer-refresh", admin.refreshHandler)
 
 	//serve static content
 	staticHandler := http.FileServer(http.Dir("./assets"))

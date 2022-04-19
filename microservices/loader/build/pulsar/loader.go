@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -11,14 +10,12 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
-	"path"
 	"strconv"
 	"strings"
 	"sync"
 
 	"time"
 
-	"github.com/apache/pulsar-client-go/pulsar"
 	"github.com/gomodule/redigo/redis"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
@@ -31,6 +28,7 @@ var grafana_dashboard_url = os.Getenv("GRAFANA_DASHBOARD_URL")             // e.
 var numJobs, _ = strconv.Atoi(os.Getenv("NUM_JOBS"))                       //20
 var numWorkers, _ = strconv.Atoi(os.Getenv("NUM_WORKERS"))                 //20
 var ingestionServiceAddress string = os.Getenv("INGESTOR_SERVICE_ADDRESS") //ingestor-service.ragnarok.svc.cluster.local
+var replayServiceAddress string = os.Getenv("REPLAY_SERVICE_ADDRESS")      //
 
 //pulsar connection details
 var brokerServiceAddress = os.Getenv("PULSAR_BROKER_SERVICE_ADDRESS") // e.g "pulsar://pulsar-mini-broker.pulsar.svc.cluster.local:6650"
@@ -56,10 +54,10 @@ var workerType string = "producer"
 var streamAllCount int = 0
 
 //Redis data storage details
-var dbIndex, err = strconv.Atoi(os.Getenv("REDIS_ALLOCATOR_NS_INDEX")) // Separate namespace for management data. integer index > 0  e.g 2
-
-var redisWriteConnectionAddress string = os.Getenv("REDIS_MASTER_ADDRESS") //address:port combination e.g  "my-release-redis-master.default.svc.cluster.local:6379"
-var redisReadConnectionAddress string = os.Getenv("REDIS_REPLICA_ADDRESS") //address:port combination e.g  "my-release-redis-replicas.default.svc.cluster.local:6379"
+var dbIndex, err = strconv.Atoi(os.Getenv("REDIS_ALLOCATOR_NS_INDEX"))       // Separate namespace for management data. integer index > 0  e.g 2
+var sequenceReplayDBindex, _ = strconv.Atoi(os.Getenv("SEQUENCE_REPLAY_DB")) //6
+var redisWriteConnectionAddress string = os.Getenv("REDIS_MASTER_ADDRESS")   //address:port combination e.g  "my-release-redis-master.default.svc.cluster.local:6379"
+var redisReadConnectionAddress string = os.Getenv("REDIS_REPLICA_ADDRESS")   //address:port combination e.g  "my-release-redis-replicas.default.svc.cluster.local:6379"
 var redisAuthPass string = os.Getenv("REDIS_PASS")
 
 //sometimes we operate on global variables ...
@@ -189,27 +187,10 @@ func logger(logFile string, logMessage string) {
 
 }
 
-func clear_directory(Dir string) (int, error) {
-
-	//delete all items in the directory
-	fCounter := 0
-
-	dir, err := ioutil.ReadDir(Dir)
-	for _, d := range dir {
-		os.RemoveAll(path.Join([]string{Dir, d.Name()}...))
-		fCounter++
-	}
-
-	if err != nil {
-		fmt.Println("error trying to remove files in ", Dir, err)
-	}
-
-	return fCounter, err
-
-}
-
 //assign task ranges to workers
 func idAllocator(workers []string, taskMap map[int][]string, numWorkers int) (m map[string][]string) {
+
+	fmt.Println("(idAllocator) begin ...")
 
 	tMap := make(map[string][]string)
 
@@ -222,11 +203,13 @@ func idAllocator(workers []string, taskMap map[int][]string, numWorkers int) (m 
 		tMap[taskID] = taskMap[element]
 
 		//debug
-		fmt.Println("assigned ", taskID, " -> ", taskMap[element])
+		fmt.Println("(idAllocator) assigned ", taskID, " -> ", taskMap[element])
 
 		element++
 
 	}
+
+	fmt.Println("(idAllocator) done ...")
 
 	return tMap
 }
@@ -251,28 +234,30 @@ func generate_input_sources(startSequence int, endSequence int) (inputs []string
 	return inputQueue
 }
 
-func update_management_data_redis(dataIndex string, input_data []string, conn redis.Conn, dataCount int) (count int) {
+func update_management_data_redis(dataIndex string, input_data []string, conn redis.Conn, workCount int) (count int) {
 
 	//build the message body inputs for json
 	for item := range input_data {
 
 		data := input_data[item]
 
-		fmt.Println("inserting: ", data, " for ", dataIndex)
+		fmt.Println("(update_management_data_redis) inserting: ", data, " for ", dataIndex)
 
 		_, err := conn.Do("LPUSH", dataIndex, data)
 
 		if err != nil {
-			fmt.Println("failed - LPUSH put data to redis: ", data, err.Error())
+			fmt.Println("(update_management_data_redis) failed - LPUSH put data to redis: ", data, err.Error())
 		} else {
 			recordAssignedOrders()
-			fmt.Println("ok - LPUSH put data to redis: ", data)
+			fmt.Println("(update_management_data_redis) ok - LPUSH put data to redis: ", data)
 		}
 
 	}
 
-	dataCount++
-	return dataCount
+	workCount++
+
+	fmt.Println("(update_management_data_redis) updating work count: ", workCount)
+	return workCount
 }
 
 //Creatively Synthesise random trades from nothing
@@ -450,36 +435,6 @@ func MoveFile(sourcePath, destPath string) error {
 	return err
 }
 
-func moveAllfiles(a_directory string, b_directory string) int {
-
-	someFiles, err := ioutil.ReadDir(a_directory)
-	fcount := 0
-
-	for _, file := range someFiles {
-
-		input_file := a_directory + file.Name()
-		destination_file := b_directory + file.Name()
-
-		err = MoveFile(input_file, destination_file)
-
-		if err != nil {
-
-			logMessage := "ERROR: failed to move " + input_file + "to  " + destination_file + " error code: " + err.Error()
-			logger(logFile, logMessage)
-
-		} else {
-
-			logMessage := "OK: " + input_file + " moved " + " to " + destination_file
-			logger(logFile, logMessage)
-
-			fcount++
-
-		}
-	}
-	return fcount
-
-}
-
 func backupProcessedData(w http.ResponseWriter, r *http.Request) (int, error) {
 
 	fcount := 0
@@ -488,6 +443,7 @@ func backupProcessedData(w http.ResponseWriter, r *http.Request) (int, error) {
 	logger(logFile, "backing up already processed data from previous workload ...")
 
 	files, _ := ioutil.ReadDir(processed_directory)
+
 	w.Write([]byte("<html><h1>Backing up previous load data ...</h1><br>" + strconv.Itoa(len(files)) + " files </html>"))
 
 	//get "/processed" directory filecount before
@@ -592,16 +548,16 @@ func update_work_allocation_table(workAllocationMap map[string][]string, workCou
 	if err != nil {
 		panic(err)
 	} else {
-		fmt.Println("redis auth response: ", response)
+		fmt.Println("(update_work_allocation_table) redis auth response: ", response)
 	}
 
 	response, err = conn.Do("SELECT", dbIndex)
 
 	if err != nil {
-		fmt.Println("can't connect to redis namespace: ", dbIndex)
+		fmt.Println("(update_work_allocation_table) can't connect to redis namespace: ", dbIndex)
 		panic(err)
 	} else {
-		fmt.Println("redis select namespace response: ", response)
+		fmt.Println("(update_work_allocation_table) redis select namespace response: ", response)
 	}
 
 	//Use defer to ensure the connection is always
@@ -611,12 +567,12 @@ func update_work_allocation_table(workAllocationMap map[string][]string, workCou
 	//map of assigned work (worker pod -> array of message ids)
 	for k, v := range workAllocationMap {
 
-		fmt.Println("store work map item: ", k, " -> ", v, " count: ", workCount)
+		fmt.Println("(update_work_allocation_table) store work map item: ", k, " -> ", v, " count: ", workCount)
 		workCount = update_management_data_redis(k, v, conn, workCount)
 	}
 
 	//keep a counter of how many worker entries were written
-	logger("main", "wrote work map for "+strconv.Itoa(workCount)+" workers")
+	logger("main", "(update_work_allocation_table) wrote work map for "+strconv.Itoa(workCount)+" workers")
 
 	response, err = conn.Do("SELECT", 0)
 
@@ -628,10 +584,18 @@ func assign_message_workload_workers(workers []string, inputs []string, numWorke
 	tempMap := make(map[int][]string)
 	size := len(inputs) / numWorkers
 
+	if size < 1 {
+		size = 1
+	}
+
+	fmt.Println("(assign_message_workload_workers) begin creating work allocation template, with inputs length: ", len(inputs), " allocation size: ", size, " workers: ", workers)
+
 	var j int
 	var lc int = 0
 
 	for i := 0; i < len(inputs); i += size {
+
+		fmt.Println("(assign_message_workload_workers) lc,i,j -> ", lc, i, j)
 
 		j += size
 
@@ -649,7 +613,11 @@ func assign_message_workload_workers(workers []string, inputs []string, numWorke
 
 	}
 
+	fmt.Println("(assign_message_workload_workers) calling work id allocator.")
+
 	tMap := idAllocator(workers, tempMap, numWorkers)
+
+	fmt.Println("(assign_message_workload_workers) created work allocation template: ", tMap)
 
 	return tMap
 }
@@ -685,6 +653,8 @@ func deleteFromRedis(inputId string, conn redis.Conn) (err error) {
 
 func delete_stale_allocation_data(workerIdList []string) {
 
+	fmt.Println("(delete_stale_allocation_data) deleting old allocation directory ...")
+
 	//Open Redis connection here again ...
 	conn, err := redis.Dial("tcp", redisWriteConnectionAddress)
 
@@ -696,9 +666,10 @@ func delete_stale_allocation_data(workerIdList []string) {
 	response, err := conn.Do("AUTH", redisAuthPass)
 
 	if err != nil {
+		fmt.Println("(delete_stale_allocation_data) redis auth response: ", response)
 		panic(err)
 	} else {
-		fmt.Println("redis auth response: ", response)
+		fmt.Println("(delete_stale_allocation_data) redis auth response: ", response)
 	}
 
 	defer conn.Close()
@@ -711,67 +682,23 @@ func delete_stale_allocation_data(workerIdList []string) {
 		if err != nil {
 
 			logMessage := "Failed to read data for " + workerId + " error code: " + err.Error()
-			logger("delete_redis_data", logMessage)
+			logger("(delete_stale_allocation_data)", logMessage)
 
 		} else {
 
 			logMessage := "OK: read payload data for " + workerId
-			logger("delete_redis_data", logMessage)
+			logger("(delete_stale_allocation_data)", logMessage)
 
 		}
 
 	}
+
+	fmt.Println("(delete_stale_allocation_data) DONE ...")
 }
-
-/*
-func loadHistoricalData(w http.ResponseWriter, r *http.Request, start_sequence int, end_sequence int) (string, error) {
-
-	logger(logFile, "Creating synthetic data for workload ...")
-
-	status := "ok"
-	var err error
-
-	w.Write([]byte("<html><h1>Loading Historical Data</h1></html>"))
-
-	//Generate input file list and distribute among workers
-	inputQueue := generate_input_sources(start_sequence, end_sequence) //Generate the total list of input files in the source dirs
-
-	metadata := strings.Join(inputQueue, ",")
-	logger(logFile, "[debug] generated new workload metadata: "+metadata)
-
-	//Allocate workers to the input data
-	workCount := 0
-	namespace := "ragnarok"
-
-	//get the currently deployed worker pods in the producer pool
-	workers, cnt := get_worker_pool(workerType, namespace)
-
-	//delete the current work allocation table as it is now stale data
-	delete_stale_allocation_data(workers)
-
-	//Assign message workload to worker pods
-	workAllocationMap := assign_message_workload_workers(workers, inputQueue, cnt)
-
-	//Update the work allocation in a REDIS database
-	update_work_allocation_table(workAllocationMap, workCount)
-
-	//update this global
-	scaleMax = workCount
-
-	w.Write([]byte("<br><html>updated worker allocation table for concurrent message processing.</html>"))
-
-	//Generate the actual message  data.
-	fcnt := process_input_data(inputQueue)
-
-	w.Write([]byte("<br><html>Generated new load test data: " + strconv.Itoa(fcnt) + " files." + "</html>"))
-
-	return status, err
-}
-*/
 
 func loadSyntheticData(w http.ResponseWriter, r *http.Request, start_sequence int, end_sequence int) (string, error) {
 
-	logger(logFile, "Creating synthetic data for workload ...")
+	logger(logFile, "(loadSyntheticData) Creating synthetic data for workload ...")
 
 	status := "ok"
 	var err error
@@ -782,7 +709,7 @@ func loadSyntheticData(w http.ResponseWriter, r *http.Request, start_sequence in
 	inputQueue := generate_input_sources(start_sequence, end_sequence) //Generate the total list of input files in the source dirs
 
 	metadata := strings.Join(inputQueue, ",")
-	logger(logFile, "[debug] generated new workload metadata: "+metadata)
+	logger(logFile, "(loadSyntheticData) generated new workload metadata: "+metadata)
 
 	//Allocate workers to the input data
 	workCount := 0
@@ -794,13 +721,16 @@ func loadSyntheticData(w http.ResponseWriter, r *http.Request, start_sequence in
 	//delete the current work allocation table as it is now stale data
 	delete_stale_allocation_data(workers)
 
+	logger(logFile, "(loadSyntheticData) done deleting stale allocation data. Preparing to create work allocation map ...")
+
 	//Assign message workload to worker pods
 	workAllocationMap := assign_message_workload_workers(workers, inputQueue, cnt)
 
 	//Update the work allocation in a REDIS database
-	update_work_allocation_table(workAllocationMap, workCount)
+	workCount = update_work_allocation_table(workAllocationMap, workCount)
 
 	//update this global
+
 	scaleMax = workCount
 
 	w.Write([]byte("<br><html>updated worker allocation table for concurrent message processing.</html>"))
@@ -825,17 +755,17 @@ func loadHistoricalData(w http.ResponseWriter, r *http.Request) (string, error) 
 	resp, err := http.Get(ingestionServiceAddress + "/ingest-status")
 
 	if err != nil {
-		log.Fatalln(err)
+		fmt.Println("(loadHistoricalData) error reading ingest status endpoint: ", err)
 	}
 
 	body, err := ioutil.ReadAll(resp.Body)
 
 	if err != nil {
-		log.Fatalln(err)
+		fmt.Println("(loadHistoricalData) error reading ingest status response body: ", err)
 	}
 
 	status = string(body)
-	fmt.Println("Getting ingestor service status: ", status)
+	fmt.Println("(loadHistoricalData) Getting ingestor service status: ", status)
 
 	w.Write([]byte("<br><html>Getting ingestor service status: " + status + "</html>"))
 
@@ -850,7 +780,7 @@ func loadHistoricalData(w http.ResponseWriter, r *http.Request) (string, error) 
 	body, err = ioutil.ReadAll(resp.Body)
 
 	if err != nil {
-		log.Fatalln(err)
+		fmt.Println("(loadHistoricalData) error reading ingest status endpoint: ", err)
 	}
 
 	status = string(body)
@@ -861,22 +791,24 @@ func loadHistoricalData(w http.ResponseWriter, r *http.Request) (string, error) 
 
 	for {
 		resp, err = http.Get(ingestionServiceAddress + "/ingest-status")
+
 		if err != nil {
-			log.Fatalln(err)
+			fmt.Println("(loadHistoricalData) error getting ingest status endpoint: ", err)
 		}
 
 		body, err = ioutil.ReadAll(resp.Body)
 
 		if err != nil {
-			log.Fatalln(err)
+			fmt.Println("(loadHistoricalData) error reading ingest status response body: ", err)
 			break
 		}
 
 		status = string(body)
-		fmt.Println("Getting ingestor service status: ", status)
+
+		fmt.Println("(loadHistoricalData) Getting ingestor service status: ", status)
 
 		if status == "done" {
-			fmt.Println("finished ingesting input data: ", status)
+			fmt.Println("(loadHistoricalData) finished ingesting input data: ", status)
 			w.Write([]byte("<br><html>finished ingesting input data: " + status + "</html>"))
 			break
 		} else {
@@ -890,43 +822,20 @@ func loadHistoricalData(w http.ResponseWriter, r *http.Request) (string, error) 
 	 [p] 3. Trigger the load-distribition process (distribute load among available workers)
 	  [p] 3.1 call function to reload producers
 	*/
-	fmt.Println("Getting load data from local storage ...")
+	fmt.Println("(loadHistoricalData) Getting load data from local storage ...")
 	w.Write([]byte("<br><html>Getting load data from local storage</html>"))
 
 	//load data from DB index 3 to index 0 in REDIS
 	//[x] 3.2 load the data out  of DB 3
-	//[] 3.3 load the data into DB 0
-	bulkOrderLoad()
+	//[x] 3.3 load the data into DB 0
+	bulkOrderLoad(3)
 
 	/*
-	  [] 4. Execute the load test ("ready to run load test") or give user a trigger load test button (???)
+	  [x] 4. Execute the load test ("ready to run load test") or give user a trigger load test button (???)
 	*/
 
-	fmt.Println("Starting load test ...")
-	w.Write([]byte("<br><html>Starting load test ... </html>"))
-
-	//report done
-	return status, err
-
-}
-
-func replayRecentData(w http.ResponseWriter, r *http.Request) (string, error) {
-
-	status := "ok"
-	var err error
-	fcnt := 0
-
-	w.Write([]byte("<br><html>Using last backed up data in " + backup_directory + " for new load test: " + strconv.Itoa(fcnt) + " files." + "</html>"))
-	logger(logFile, "Restoring load data from last backed up ...")
-
-	//clear input dir
-	fcnt, err = clear_directory(source_directory)
-	logger(logFile, "cleared input directory: "+strconv.Itoa(fcnt)+" files.")
-
-	//move files from /backups/ to /datastore/
-	fcnt = moveAllfiles(backup_directory, source_directory)
-	logger(logFile, " moved "+strconv.Itoa(fcnt)+" files from backup dir to input directory.")
-	w.Write([]byte("<br><html>Moved last backed up data in " + backup_directory + " for new load test: " + strconv.Itoa(fcnt) + " files." + "</html>"))
+	fmt.Println("(loadHistoricalData) Ready to start load test.")
+	w.Write([]byte("<br><html>Data is loaded for load test. </html>"))
 
 	//report done
 	return status, err
@@ -985,29 +894,6 @@ func (a adminPortal) selectionHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	if selection[parts[0]] == "ReplayRecentData" {
-		status, err := replayRecentData(w, r)
-
-		if err != nil {
-			w.Write([]byte("<html> Woops! ... " + err.Error() + "</html>"))
-		} else {
-			w.Write([]byte("<html> selection result: " + status + "</html>"))
-		}
-	}
-
-	if selection[parts[0]] == "RestartLoadTest" {
-		status := "null"
-
-		w.Write([]byte("<html><h1>Resetting and restarting load test </h1></html>"))
-
-		//restart all services that need re-initialisation for a new load test
-		_, scaleMax := get_worker_pool(workerType, namespace)
-		status = restart_loading_services("producer", scaleMax, namespace, w, r)
-
-		w.Write([]byte("<html> <br>Restarted producers - " + status + "</html>"))
-
-	}
-
 	if selection[parts[0]] == "LoadRequestSequence" {
 
 		start_of_sequence := strings.Join(r.Form["start"], " ")
@@ -1019,22 +905,28 @@ func (a adminPortal) selectionHandler(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("<html style=\"font-family:verdana;\">start of sequence: " + start_of_sequence + "<br></html>"))
 		w.Write([]byte("<html style=\"font-family:verdana;\">end of sequence: " + end_of_sequence + "<br></html>"))
 
-		SoS, err := strconv.ParseInt(start_of_sequence, 10, 64)
+		fmt.Println("(selectionHandler) got parameter strings: ", start_of_sequence, end_of_sequence)
+
+		SoS, err := strconv.Atoi(start_of_sequence)
 
 		if err != nil {
-			fmt.Println("unable to convert string start_of_sequence to int64")
+			fmt.Println("unable to convert string start_of_sequence to int64", start_of_sequence)
+		} else {
+			fmt.Println("(selectionHandler) typeconv: ", start_of_sequence, SoS)
 		}
 
-		EoS, err := strconv.ParseInt(end_of_sequence, 10, 64)
+		EoS, err := strconv.Atoi(end_of_sequence)
 
 		if err != nil {
 			fmt.Println("unable to convert string end_of_sequence to int64")
+		} else {
+			fmt.Println("typeconv: ", end_of_sequence, EoS)
 		}
 
 		//modified to use pulsar
-		dataCount, errorCount := dump_pulsar_messages_to_input(primaryTopic, SoS, EoS)
+		dataCount, error := dump_pulsar_messages_to_input(SoS, EoS)
 
-		w.Write([]byte("<html> <br>Loaded " + strconv.Itoa(dataCount) + " requests in range from topic. With " + strconv.Itoa(errorCount) + " errors. </html>"))
+		w.Write([]byte("<html> <br>Load status: " + dataCount + " requests in range from topic. With error: " + error.Error() + "</html>"))
 		w.Write([]byte("<html> <br>Initiating run with new request load data ...</html>"))
 		//user can now restart the producers and consumer
 
@@ -1051,6 +943,19 @@ func (a adminPortal) selectionHandler(w http.ResponseWriter, r *http.Request) {
 		} else {
 			w.Write([]byte("<html> Ok! ingestion result: " + status + "</html>"))
 		}
+	}
+
+	if selection[parts[0]] == "RestartLoadTest" {
+		status := "null"
+
+		w.Write([]byte("<html><h1>Resetting and restarting load test </h1></html>"))
+
+		//restart all services that need re-initialisation for a new load test
+		_, scaleMax := get_worker_pool(workerType, namespace)
+		status = restart_loading_services("producer", scaleMax, namespace, w, r)
+
+		w.Write([]byte("<html> <br>Restarted producers - " + status + "</html>"))
+
 	}
 
 	html_content := `
@@ -1075,41 +980,31 @@ func (a adminPortal) handler(w http.ResponseWriter, r *http.Request) {
 	<div style="padding:10px;">
 	<h3 style="font-family:verdana;">Select Load Testing Operations:</h3>
 	  <br>
-	
-	 <form action="/selected?param=backupProcessedData" method="post" style="font-family:verdana;">
-			<input type="submit" name="backupProcessedData" value="backup processed data" style="padding:20px;">
-			<br>
-	 </form>  
 
-	<form action="/selected?param=LoadSyntheticData" method="post">
-           <input type="submit" name="LoadSyntheticData" value="load from synthetic data" style="padding:20px;">
-	<html style="font-family:verdana;">Start of sequence:</html><input type="text" name="start" >
-	<html style="font-family:verdana;">End of Sequence:</html><input type="text" name="stop" >
-	</form>
 
-	<form action="/selected?param=LoadHistoricalData" method="post">
-           <input type="submit" name="LoadHistoricalData" value="load from historical data" style="padding:20px;">
-		   <br>
-	</form>
+  <form action="/selected?param=LoadHistoricalData" method="post">
+  <input type="submit" name="LoadHistoricalData" value="load from historical data" style="padding:20px;">
+  <br>
+  </form>
 
-	<form action="/selected?param=ReplayRecentData" method="post">
-           <input type="submit" name="ReplayRecentData" value="load recent queue data" style="padding:20px;">
-		   <br>
-	</form>
+  <form action="/selected?param=RestartLoadTest" method="post">
+  <input type="submit" name="RestartLoadTest" value="restart / reset load test" style="padding:20px;">
+  <br>
+  </form>
+ 
+  <form action="/selected?param=LoadSyntheticData" method="post">
+          <input type="submit" name="LoadSyntheticData" value="load from synthetic data" style="padding:20px;">
+  <html style="font-family:verdana;">Start of sequence:</html><input type="text" name="start" >
+  <html style="font-family:verdana;">End of Sequence:</html><input type="text" name="stop" >
+  </form>
 
-	<form action="/selected?param=RestartLoadTest" method="post">
-	<input type="submit" name="RestartLoadTest" value="restart / reset load test" style="padding:20px;">
-	<br>
-	</form>
+  <form action="/selected?param=LoadRequestSequence" method="post"">
+  <input type="submit" name="LoadRequestSequence" value="load request sequence" style="padding:20px;" style="font-family:verdana;"> 
+  <html style="font-family:verdana;">Start of sequence:</html><input type="text" name="start" >
+  <html style="font-family:verdana;">End of Sequence:</html><input type="text" name="stop" >
+  </form>
 
-	<form action="/selected?param=LoadRequestSequence" method="post"">
-	<input type="submit" name="LoadRequestSequence" value="load request sequence" style="padding:20px;" style="font-family:verdana;"> 
-
-	<html style="font-family:verdana;">Start of sequence:</html><input type="text" name="start" >
-	<html style="font-family:verdana;">End of Sequence:</html><input type="text" name="stop" >
-
-	</form>
-</div>
+  </div>
 	<div>
 		<a href="` + grafana_dashboard_url + `">Load Testing Metrics Dashboard</a>
 	</div>
@@ -1119,6 +1014,9 @@ func (a adminPortal) handler(w http.ResponseWriter, r *http.Request) {
 }
 
 func restart_loading_services(service_name string, sMax int, namespace string, w http.ResponseWriter, r *http.Request) string {
+
+	//reload Pulsar first (for now)
+	reloadPulsarQueue()
 
 	//scale down to 0, then scale up to the current max.
 	arg1 := "kubectl"
@@ -1264,175 +1162,6 @@ func write_binary_message_to_redis(msgCount int, errCount int, msgIndex int64, d
 	return msgCount, errCount
 }
 
-func streamAll(reader pulsar.Reader, startMsgIndex int64, stopMsgIndex int64) (msgCount int, errCount int) {
-
-	streamAllCount++
-
-	logger("streamAll", "#debug (streamAll): call count: "+strconv.Itoa(streamAllCount))
-
-	//dump the extracted pulsar messages to REDIS
-	msgCount = 0
-	errCount = 0
-	readCount := 0
-
-	conn, err := redis.Dial("tcp", redisWriteConnectionAddress)
-
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	logger("streamAll", "#debug (streamAll) connecting to redis to write replay messages")
-
-	// Now authenticate to Redis
-	response, err := conn.Do("AUTH", redisAuthPass)
-
-	if err != nil {
-		panic(err)
-	} else {
-		fmt.Println("redis auth response: ", response)
-	}
-
-	//Use defer to ensure the connection is always
-	//properly closed before exiting the main() function.
-	defer conn.Close()
-
-	//Make a first pass to collect/verify the message Ids ... this has performance impact
-	replayInputQueue := verify_message_stream(reader, startMsgIndex, stopMsgIndex)
-
-	//debug printout
-	fmt.Println("[#debug] verified workload list: ", replayInputQueue)
-
-	//Allocate workers to the input data
-	workCount := 0
-	namespace := "ragnarok"
-
-	//get the currently deployed worker pods in the producer pool
-	workers, cnt := get_worker_pool(workerType, namespace)
-
-	//delete the current work allocation table as it is now stale data
-	delete_stale_allocation_data(workers)
-
-	var replayInputQueueStrings []string
-
-	//convert to string format (performance hit!)
-	for item := range replayInputQueue {
-		replayInputQueueStrings = append(replayInputQueueStrings, strconv.FormatInt(replayInputQueue[item], 16))
-	}
-
-	//Assign message workload to worker pods
-	workAllocationMap := assign_message_workload_workers(workers, replayInputQueueStrings, cnt)
-
-	//Update the work allocation in a REDIS database
-	//This allows workers to pick their assigned tasks
-	update_work_allocation_table(workAllocationMap, workCount)
-
-	//update this global
-	scaleMax = workCount
-
-	for reader.HasNext() {
-
-		msg, err := reader.Next(context.Background())
-
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		//can I access the details of the message?
-		msgIndex := msg.ID().EntryID()
-
-		logger("streamAll", "#debug (streamAll): extracting replay message details ...")
-		fmt.Printf("Read message id: -> %v <- ... => %#v\n", msgIndex, msg.ID())
-
-		//get the metadata as string for parsing
-		metadata := fmt.Sprintf("%#v", msg.ID())
-
-		//get the actual message content
-		content := string(msg.Payload())
-
-		logger("streamAll", "#debug (streamAll): got replay message index...")
-
-		//This is terrible. There has to be a better way to do this.Please replace once you've read:
-		//https://pulsar.apache.org/docs/en/2.2.0/concepts-messaging/
-
-		//modify to loop through the replayInputQueue instead
-		for i := range replayInputQueue {
-
-			if msgIndex == replayInputQueue[i] {
-
-				logger("streamAll", "#debug (streamAll): got replay message content for processing: "+content)
-				logger("streamAll", "#debug (streamAll): got replay message metadata for processing: "+metadata)
-
-				dataMap := parseJSONmessage(content)
-
-				for f := range dataMap {
-					fmt.Println("#debug (streamAll): got struct field from map -> ", f, dataMap[f])
-				}
-
-				msgCount, errCount = write_binary_message_to_redis(msgCount, errCount, msgIndex, dataMap, conn)
-
-				if errCount == 0 {
-
-					readCount++
-
-				}
-
-				logger("streamAll", "#debug (streamAll): number of replay topic messages processed: "+strconv.Itoa(msgCount)+" errors: "+strconv.Itoa(errCount))
-				logger("streamAll", "#debug (streamAll): replay message processing count = "+strconv.Itoa(readCount))
-			}
-		}
-
-	}
-
-	return msgCount, errCount
-}
-
-func verify_message_stream(reader pulsar.Reader, startMsgIndex int64, stopMsgIndex int64) (inputQueue []int64) {
-
-	//make sure the messages we want are actually in the pulsar topic
-	//because there is a possibility not all the messages my be in the stream
-	var replayInputQueue []int64
-
-	var found bool = false
-
-	for reader.HasNext() {
-
-		msg, err := reader.Next(context.Background())
-
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		//can I access the details of the message?
-		msgIndex := msg.ID().EntryID()
-
-		logger("streamAll", "#debug (streamAll): extracting replay message details ...")
-		fmt.Printf("#debug (verify_message_stream): got message id: -> %v <-\n", msgIndex)
-
-		//This is terrible. There has to be a better way to do this.Please replace once you've read:
-		//https://pulsar.apache.org/docs/en/2.2.0/concepts-messaging/
-
-		//modify to loop through the replayInputQueue instead
-		for i := startMsgIndex; i <= stopMsgIndex; i++ {
-
-			if msgIndex == i {
-
-				logger("streamAll", "#debug (streamAll): confirmed replay message index is there: "+strconv.FormatInt(msgIndex, 16))
-				found = true
-				replayInputQueue = append(replayInputQueue, msgIndex)
-
-			}
-
-		}
-
-		if found == false {
-			fmt.Println("couldn't find message index in the queueing system: " + strconv.FormatInt(msgIndex, 16) + " ")
-		}
-
-	}
-
-	return replayInputQueue
-}
-
 //custom parsing of JSON struct
 //Expected format as read from Pulsar topic: [{ "Name":"newOrder","ID":"14","Time":"1644469469070529888","Data":"loader-c7dc569f-8bkql","Eventname":"transactionRequest"}]
 //{"instrumentId":128,"symbol":"BTC/USDC[Infi]","userId":25097,"side":2,"ordType":2,"price":5173054,"price_scale":2,"quantity":61300,"quantity_scale":6,"nonce":1645495020701,"blockWaitAck":0,"clOrdId":""}
@@ -1500,75 +1229,172 @@ func parseJSONmessageAlt(theString string) map[string]string {
 	return dMap
 }
 
-//modified to use pulsar
-func dump_pulsar_messages_to_input(pulsarTopic string, msgStartSeq int64, msgStopSeq int64) (msgCount int, errCount int) {
+//reach out to separate sequence streaming service to load the required sequence into REDIS
+func dump_pulsar_messages_to_input(msgStartSeq int, msgStopSeq int) (status string, err error) {
 
-	logger("dump_pulsar_messages_to_input", "DEBUG> preparing to stream messages from topic "+pulsarTopic+" in range")
-	logger("dump_pulsar_messages_to_input", "DEBUG> preparing a pulsar client connection ...")
-	client, err := pulsar.NewClient(
-		pulsar.ClientOptions{
-			URL:               brokerServiceAddress,
-			OperationTimeout:  30 * time.Second,
-			ConnectionTimeout: 30 * time.Second,
-		})
+	fmt.Println("(dump_pulsar_messages_to_input) got parameters: ", msgStartSeq, msgStopSeq)
 
-	if err != nil {
-		log.Fatalf("Could not instantiate Pulsar client: %v", err)
-	}
+	status, err = loadOrderSequence(msgStartSeq, msgStopSeq)
 
-	logger("dump_pulsar_messages_to_input", "DEBUG> (dump_pulsar_messages_to_input) deferring pulsar client close ....var")
-	defer client.Close()
+	return status, err
 
-	logger("dump_pulsar_messages_to_input", "DEBUG> (dump_pulsar_messages_to_input) creating a pulsar reader (CreateReader) ...")
-	reader, err := client.CreateReader(pulsar.ReaderOptions{
-		Topic:          pulsarTopic,
-		StartMessageID: pulsar.EarliestMessageID(),
-	})
+}
 
-	logger("dump_pulsar_messages_to_input", "DEBUG> (dump_pulsar_messages_to_input) deferring reader close")
-	defer reader.Close()
+func loadOrderSequence(msgStartSeq int, msgStopSeq int) (status string, err error) {
 
-	logger("dump_pulsar_messages_to_input", "DEBUG> (dump_pulsar_messages_to_input) checking reader error (CreateReader) ...")
+	status = "pending"
+
+	fmt.Println("(loadOrderSequence) got parameters: ", msgStartSeq, msgStopSeq)
+	logger(logFile, "(loadOrderSequence) loading historical order sequence from queue ...")
+
+	//[x] 0. Read replay status: GET /streamer-status
+	resp, err := http.Get(replayServiceAddress + "/streamer-status")
 
 	if err != nil {
-		fmt.Println("got error creating reader: ", err) //Alternatively: log.Fatal(err)
+		fmt.Println("(loadOrderSequence) http read error getting /streamer-status", err)
 	}
 
-	logger("dump_pulsar_messages_to_input", "DEBUG> (dump_pulsar_messages_to_input) preparing to stream out all messages ...")
+	body, err := ioutil.ReadAll(resp.Body)
 
-	msgCount, errCount = streamAll(reader, msgStartSeq, msgStopSeq)
+	if err != nil {
+		fmt.Println("(loadOrderSequence) http read error reading response body", err)
+	}
 
-	return msgCount, errCount
+	status = string(body)
+
+	fmt.Println("(loadOrderSequence) Getting replay service status: ", status)
+
+	//[x] 1. Trigger the loader service via the API (kubectl delete <pod-name>)
+	// GET /load-start
+	fmt.Println("(loadOrderSequence) start=", msgStartSeq, " stop=", msgStopSeq)
+
+	//don't block on this ...
+	go func() {
+		resp, err = http.Get(replayServiceAddress + "/streamer-start?start=" + strconv.Itoa(msgStartSeq) + "?stop=" + strconv.Itoa(msgStopSeq))
+
+		if err != nil {
+			log.Fatalln(err)
+		}
+
+		body, err = ioutil.ReadAll(resp.Body)
+
+		if err != nil {
+			fmt.Println("(loadOrderSequence) http read error reading streamer-start response body", err)
+		}
+
+		status = string(body)
+		fmt.Println("(loadOrderSequence) triggered replay start: ", status)
+
+	}()
+
+	//	[x] 2. Wait until it's status "reloaded" (until /streamer-status/ is not `pending`)
+	//	  [x] 2.1. Poll the status endpoint ("API": curl /streamer-status/) pending|started|completed
+
+	for {
+		resp, err = http.Get(replayServiceAddress + "/streamer-status")
+
+		if err != nil {
+			fmt.Println("(loadOrderSequence) error getting /streamer-status endpoint", err)
+		}
+
+		body, err = ioutil.ReadAll(resp.Body)
+
+		if err != nil {
+			fmt.Println("(loadOrderSequence) error reading streamer-status response body", err)
+			break
+		}
+
+		status = string(body)
+
+		fmt.Println("(loadOrderSequence) Getting replay service status: ", status)
+
+		if status == "reloaded" {
+			fmt.Println("(loadOrderSequence) finished replaying input data sequence: ", status)
+			break
+		}
+
+		time.Sleep(5 * time.Second)
+	}
+
+	/*
+	 [p] 3. Trigger the load-distribition process (distribute load among available workers)
+	  [p] 3.1 call function to reload producers
+	*/
+
+	fmt.Println("(loadOrderSequence) Getting replay load data from local storage ...")
+	//w.Write([]byte("<br><html>Getting replay load data from local storage</html>"))
+
+	//load data from DB index 3 to index 0 in REDIS
+	//[x] 3.2 load the data out  of DB 5
+	//[x] 3.3 load the data into DB 0
+
+	//#WARNING# :  need to first truncate DB6 to get rid of stale loads ...
+	bulkOrderLoad(sequenceReplayDBindex)
+
+	/*
+	  [x] 4. Execute the load test ("ready to run load test") or give user a trigger load test button (???)
+	*/
+
+	fmt.Println("(loadOrderSequence) Ready to start load test with replayed data sequence.")
+	//w.Write([]byte("<br><html>Data is loaded for replay load test. </html>"))
+
+	//report done
+	return status, err
+
 }
 
 //BEGIN: Data loading code
 //Can we avoid this? It's slow ...
-func purgeProcessedRedis(conn redis.Conn) {
+func purgeProcessedRedis(conn redis.Conn, inputDBIndex int) {
 	//purge the originally loaded data once processed into db 0
 
 	purgeCntr := 0
 
-	logger(logFile, "purging processed files ... "+strconv.Itoa(purgeCntr))
+	logger(logFile, "(purgeProcessedRedis) purging processed files ... "+strconv.Itoa(purgeCntr))
 
 	//have to select the data staging DB (data input source)
-	result, err := conn.Do("SELECT", 3)
+	result, err := conn.Do("SELECT", inputDBIndex)
 
-	for input_id, _ := range purgeMap {
+	if err != nil {
 
-		fmt.Println("dummy purging redis item ", input_id)
+		fmt.Println("(purgeProcessedRedis) failed to select redis db: ", inputDBIndex, err.Error())
+
+	} else {
+
+		fmt.Println("(purgeProcessedRedis) selecting redis db", inputDBIndex, result)
+
+	}
+
+	for input_id := range purgeMap {
+
+		fmt.Println("(purgeProcessedRedis) purging redis item ", input_id)
 
 		result, err = conn.Do("DEL", input_id)
 
 		if err != nil {
-			fmt.Printf("Failed removing original input data from redis: %s\n", err)
+			fmt.Printf("(purgeProcessedRedis) Failed removing original input data from redis: %s\n", err)
 		} else {
-			fmt.Printf("deleted input %s -> %s\n", input_id, result)
+			fmt.Printf("(purgeProcessedRedis) deleted input %s -> %s\n", input_id, result)
 		}
 
 		purgeCntr++
 	}
 
-	logger(logFile, "purged processed files: "+strconv.Itoa(purgeCntr))
+	logger(logFile, "(purgeProcessedRedis) purged processed files: "+strconv.Itoa(purgeCntr))
+
+	//Switch back to default DB
+	_, errSelect := conn.Do("SELECT", 0)
+
+	if errSelect != nil {
+
+		fmt.Println("(purgeProcessedRedis) FAILED to switch back to default REDIS DB")
+
+	} else {
+
+		fmt.Println("(purgeProcessedRedis) Switched back to default REDIS DB: ", 0)
+
+	}
+
 }
 
 func readFromRedis(input_id string, conn redis.Conn) (ds string, err error) {
@@ -1676,7 +1502,7 @@ func readFromRedis(input_id string, conn redis.Conn) (ds string, err error) {
 
 }
 
-func process_input_data_redis_concurrent(workerId int, jobId int) {
+func process_input_data_redis_concurrent(workerId int, jobId int, inputDBIndex int) {
 
 	//error counter
 	errCount := 0
@@ -1709,18 +1535,23 @@ func process_input_data_redis_concurrent(workerId int, jobId int) {
 	if err != nil {
 		panic(err)
 	} else {
-		fmt.Println("redis auth response: ", response)
+		fmt.Println("(process_input_data_redis_concurrent) redis auth response: ", response)
 	}
 
 	defer conn.Close()
 
-	//SELECT redis DB 3 to get the raw order data
-	fmt.Println("(process_input_data_redis_concurrent) select redis db: ", 3)
-	conn.Do("SELECT", 3)
+	//SELECT redis DB 3 to get the raw order data, Select DB 5 for replayed queue messages
+	fmt.Println("(process_input_data_redis_concurrent) select redis db: ", inputDBIndex)
+	conn.Do("SELECT", inputDBIndex)
 
 	fmt.Println("(process_input_data_redis_concurrent) file list -> ", tmpFileList)
 
+	orderCounter := 0
+
 	for fIndex := range tmpFileList {
+
+		orderCounter++
+
 		input_id := tmpFileList[fIndex]
 
 		payload, err := readFromRedis(input_id, conn) //readFromRedis(input_id string, c conn.Redis) (ds string, err error)
@@ -1748,7 +1579,7 @@ func process_input_data_redis_concurrent(workerId int, jobId int) {
 
 			//debug printout
 			for f := range dataMap {
-				fmt.Println("#debug (process_input_data_redis_concurrent): got struct field from map -> ", f, dataMap[f])
+				fmt.Println("(process_input_data_redis_concurrent): got struct field from map -> ", f, dataMap[f])
 			}
 
 			//keep a record of files that should be moved to /processed after the workers stop
@@ -1759,6 +1590,8 @@ func process_input_data_redis_concurrent(workerId int, jobId int) {
 			fmt.Println("(process_input_data_redis_concurrent) completed job: ", jobId)
 		}
 
+		fmt.Println("(process_input_data_redis_concurrent) [checkpoint] handling input message index: ", input_id, tmpFileList[fIndex], " order loop count: ", orderCounter)
+
 	}
 
 	//#debug
@@ -1768,10 +1601,18 @@ func process_input_data_redis_concurrent(workerId int, jobId int) {
 	fmt.Println("(process_input_data_redis_concurrent) select redis db: ", 0)
 	conn.Do("SELECT", 0)
 
+	lCount := 0
+
 	for msgIndex, _ := range allData {
-		fmt.Println("(process_input_data_redis_concurrent) loading this data to redis db 0: key -> ", msgIndex, " map -> ", allData[msgIndex])
+
+		lCount++
+
+		fmt.Println("(process_input_data_redis_concurrent) count = "+strconv.Itoa(lCount)+" loading this data to redis db 0: key -> ", msgIndex, " map -> ", allData[msgIndex])
+
 		msgCount, errCount = write_binary_message_to_redis(msgCount, errCount, msgIndex, allData[msgIndex], conn)
-		fmt.Println("(process_input_data_redis_concurrent) loaded data into redis db 0. message count: ", msgCount, " errors: ", errCount)
+
+		fmt.Println("(process_input_data_redis_concurrent) count = "+strconv.Itoa(lCount)+" loaded data into redis db 0. message count: ", msgCount, " errors: ", errCount)
+
 	}
 
 	logger("(process_input_data_redis_concurrent)", "completing worker task "+strconv.Itoa(taskCount))
@@ -1784,7 +1625,7 @@ func process_input_data_redis_concurrent(workerId int, jobId int) {
 	inputQueue := generate_input_sources(startSequence, endSequence) //Generate the total list of input files in the source dirs
 
 	metadata := strings.Join(inputQueue, ",")
-	logger(logFile, "[debug] generated new workload metadata: "+metadata)
+	logger(logFile, "(process_input_data_redis_concurrent) generated new workload metadata: "+metadata)
 
 	//get the currently deployed worker pods in the producer pool
 	workers, cnt := get_worker_pool(workerType, namespace)
@@ -1796,10 +1637,11 @@ func process_input_data_redis_concurrent(workerId int, jobId int) {
 	workAllocationMap := assign_message_workload_workers(workers, inputQueue, cnt)
 
 	//Update the work allocation in a REDIS database
-	update_work_allocation_table(workAllocationMap, workCount)
+	workCount = update_work_allocation_table(workAllocationMap, workCount)
 
 	//update this global
 	scaleMax = workCount
+	fmt.Println("setting scaleMax to: ", scaleMax, " = ", workCount)
 
 	//it's a global variable being updated concurrently, so mutex lock ...
 	mutex.Lock()
@@ -1807,49 +1649,56 @@ func process_input_data_redis_concurrent(workerId int, jobId int) {
 	mutex.Unlock()
 
 	logger("(process_input_data_redis_concurrent)", "completed worker task "+strconv.Itoa(taskCount))
+	logger("(process_input_data_redis_concurrent)", "task count = "+strconv.Itoa(taskCount)+" numWorkers = "+strconv.Itoa(numWorkers))
 
 	//please fix this!!
-	if taskCount == numWorkers-1 || taskCount == numWorkers {
-		//delete (or move) all processed files in DB  3
+	if workCount == numWorkers {
+		//delete (or move) all processed files in the relevant db (dbIndex)
 		//from Redis to somewhere else once they've been processed
-		fmt.Println("(process_input_data_redis_concurrent) purging processed redis data")
-		//purgeProcessedRedis(conn)
+		fmt.Println("(process_input_data_redis_concurrent) purging processed redis data in db ", inputDBIndex)
+		purgeProcessedRedis(conn, inputDBIndex)
+	} else {
+		fmt.Println("(process_input_data_redis_concurrent) not purging yet: taskCount: ", taskCount, " work count: ", workCount, " numWorkers: ", numWorkers)
 	}
+
+	logger("(process_input_data_redis_concurrent)", "leaving routing process input data redis concurrent")
+	logger("(process_input_data_redis_concurrent)", "task count = "+strconv.Itoa(taskCount)+" workcount = "+strconv.Itoa(workCount)+" numWorkers = "+strconv.Itoa(numWorkers))
 
 }
 
-func worker(id int, jobs <-chan int, results chan<- int) {
+func worker(id int, jobs <-chan int, results chan<- int, inputDBIndex int) {
 	for j := range jobs {
-		process_input_data_redis_concurrent(id, j)
+		process_input_data_redis_concurrent(id, j, inputDBIndex)
 		results <- numJobs //* numWorkers
 	}
 }
 
-func read_input_sources_redis() (inputs []string) {
+func read_input_sources_redis(sourceDBIndex int) (inputs []string) {
+
 	var inputQueue []string
 
 	//Get from Redis
 	conn, err := redis.Dial("tcp", redisReadConnectionAddress)
 
 	if err != nil {
-		log.Fatal(err)
+		fmt.Println("(read_input_sources_redis) error dialing redis connection: ", err)
 	}
 
 	// Now authenticate
 	response, err := conn.Do("AUTH", redisAuthPass)
 
 	if err != nil {
-		panic(err)
+		fmt.Println("(read_input_sources_redis) PANIC redis auth response: ", response)
 	} else {
-		fmt.Println("redis auth response: ", response)
+		fmt.Println("(read_input_sources_redis) OK redis auth response: ", response)
 	}
 
 	defer conn.Close()
 
 	//GET ALL VALUES FROM DISCOVERED KEYS ONLY
-	//select correct DB
-	fmt.Println("select redis db: ", 3)
-	conn.Do("SELECT", 3)
+	//select correct DB for this source
+	fmt.Println("(read_input_sources_redis) select redis db: ", sourceDBIndex)
+	conn.Do("SELECT", sourceDBIndex)
 
 	data, err := redis.Strings(conn.Do("KEYS", "*"))
 
@@ -1863,11 +1712,17 @@ func read_input_sources_redis() (inputs []string) {
 
 	}
 
+	//revert to the default DB index (0)
+	fmt.Println("(read_input_sources_redis) select default redis db: ", 0)
+	conn.Do("SELECT", 0)
+
 	//return the list of messages that exist in redis ...
 	return inputQueue
 }
 
 func loadIdAllocator(taskMap map[int][]string, numWorkers int) (m map[string][]string) {
+
+	fmt.Println("(loadIdAllocator) begin ...")
 
 	tMap := make(map[string][]string)
 
@@ -1880,6 +1735,8 @@ func loadIdAllocator(taskMap map[int][]string, numWorkers int) (m map[string][]s
 		element++
 
 	}
+
+	fmt.Println("(loadIdAllocator) done ...", tMap)
 
 	return tMap
 }
@@ -1914,16 +1771,16 @@ func divide_and_conquer(inputs []string, numWorkers int, numJobs int) (m map[str
 	return tMap
 }
 
-func bulkOrderLoad() {
+func bulkOrderLoad(inputDBIndex int) {
 
-	fmt.Println("loading raw order data for processing ...")
+	fmt.Println("(bulkOrderLoad) loading raw order data for processing from DB index ", inputDBIndex)
 
-	//inputQueue := read_input_sources(source_directory)            //Get the total list of input files in the source dirs
-	inputQueue := read_input_sources_redis()                      //Alternatively, get the total list of input data files from redis instead
+	inputQueue := read_input_sources_redis(inputDBIndex) //Alternatively, get the total list of input data files from redis instead
+
 	taskMap = divide_and_conquer(inputQueue, numWorkers, numJobs) //get the allocation of workers to task-sets
 
 	//debug
-	fmt.Println("debug> generate taskmap: ", taskMap)
+	fmt.Println("(bulkOrderLoad) generate taskmap: ", taskMap)
 
 	//Making use of Go Worker pools for concurrency within a pod here ...
 	jobs := make(chan int, numJobs)
@@ -1931,7 +1788,7 @@ func bulkOrderLoad() {
 
 	for w := 1; w <= numWorkers; w++ {
 
-		go worker(w, jobs, results)
+		go worker(w, jobs, results, inputDBIndex)
 
 	}
 
@@ -1948,6 +1805,77 @@ func bulkOrderLoad() {
 		<-results
 
 	}
+}
+
+func reloadPulsarQueue() {
+
+	status := "pending"
+
+	//[x] 0. Read replay status: GET /streamer-status
+	resp, err := http.Get(replayServiceAddress + "/streamer-status")
+
+	if err != nil {
+		fmt.Println("(reloadPulsarQueue) http read error getting /streamer-status", err)
+	}
+
+	body, err := ioutil.ReadAll(resp.Body)
+
+	if err != nil {
+		fmt.Println("(reloadPulsarQueue) http read error reading response body", err)
+	}
+
+	status = string(body)
+
+	fmt.Println("(reloadPulsarQueue) Getting replay service status: ", status)
+
+	//don't block on this ...
+	go func() {
+
+		resp, err = http.Get(replayServiceAddress + "/streamer-refresh")
+
+		if err != nil {
+			log.Fatalln(err)
+		}
+
+		body, err = ioutil.ReadAll(resp.Body)
+
+		if err != nil {
+			fmt.Println("( reloadPulsarQueue) http read error reading streamer-refresh response body", err)
+		}
+
+		status = string(body)
+		fmt.Println("(reloadPulsarQueue) triggered replay start: ", status)
+
+	}()
+
+	for {
+		resp, err = http.Get(replayServiceAddress + "/streamer-status")
+
+		if err != nil {
+			fmt.Println("(reloadPulsarQueue) error getting /streamer-status endpoint", err)
+		}
+
+		body, err = ioutil.ReadAll(resp.Body)
+
+		if err != nil {
+			fmt.Println("(reloadPulsarQueue) error reading streamer-status response body", err)
+			break
+		}
+
+		status = string(body)
+
+		fmt.Println("(reloadPulsarQueue) Getting refresh service status: ", status)
+
+		if status == "reloaded" {
+			fmt.Println("(reloadPulsarQueue) finished replaying input data sequence: ", status)
+			break
+		}
+
+		time.Sleep(5 * time.Second)
+	}
+
+	fmt.Println("(reloadPulsarQueue) done refreshing queuing system ...")
+
 }
 
 //END: Data loading code

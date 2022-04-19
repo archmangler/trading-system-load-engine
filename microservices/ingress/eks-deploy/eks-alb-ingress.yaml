@@ -54,6 +54,13 @@ spec:
             name: streamer-service
             port:
               number: 80
+      - path: /streamer-refresh
+        pathType: Prefix
+        backend:
+          service:
+            name: streamer-service
+            port:
+              number: 80
       - path: /streamer-status
         pathType: Prefix
         backend:
