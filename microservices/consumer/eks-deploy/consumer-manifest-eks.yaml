@@ -7,7 +7,7 @@ spec:
   selector:
     matchLabels:
       app: consumer
-  replicas: 200
+  replicas: 20
   strategy:
     type: RollingUpdate
     rollingUpdate:
@@ -22,7 +22,7 @@ spec:
 #        agentpool: np003
       containers:
       - name: consumer
-        image: archbungle/load-consumer:pulsar-0.0.40d35
+        image: archbungle/load-consumer:pulsar-0.0.41d5
         imagePullPolicy: IfNotPresent
         env:
         - name: API_BASE_URL
@@ -41,6 +41,8 @@ spec:
           value: "1"
         - name: NUM_WORKERS
           value: "1"
+        - name: CANCEL_BATCH_LIMIT
+          value: "100"
         - name: PULSAR_BROKER_SERVICE_ADDRESS
           value: "pulsar://pulsar-broker.pulsar.svc.cluster.local:6650"
         - name: PULSAR_CONSUMER_SUBSCRIPTION_NAME
