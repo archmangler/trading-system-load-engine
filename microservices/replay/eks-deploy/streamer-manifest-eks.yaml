@@ -19,11 +19,13 @@ spec:
       serviceAccountName: streamer-internal-kubectl
       containers:
       - name: streamer
-        image: archbungle/streamer:pulsar-0.0.26d17
+        image: archbungle/streamer:pulsar-0.0.26d26
         imagePullPolicy: IfNotPresent
         env:
         - name: SEQUENCE_REPLAY_DB
           value: "6"
+        - name: SEQUENCE_BACKUP_DB
+          value: "7"
         - name: S3_BUCKET_ADDRESS
           value: "s3://eqnx-tradedata-source001"
         - name: REMOTE_SOURCE_DIRECTORY

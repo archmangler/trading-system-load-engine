@@ -437,50 +437,15 @@ func MoveFile(sourcePath, destPath string) error {
 
 func backupProcessedData(w http.ResponseWriter, r *http.Request) (int, error) {
 
-	fcount := 0
-	errCount := 0
+	ocount := 0
+	logger("(backupProcessedData)", "calling backup service to backup  load queue ...")
 
-	logger(logFile, "backing up already processed data from previous workload ...")
+	w.Write([]byte("<html><h1>calling backup service to backup  load queue  ...</h1><br> files </html>"))
 
-	files, _ := ioutil.ReadDir(processed_directory)
-
-	w.Write([]byte("<html><h1>Backing up previous load data ...</h1><br>" + strconv.Itoa(len(files)) + " files </html>"))
-
-	//get "/processed" directory filecount before
-	theFiles, err := ioutil.ReadDir(processed_directory)
-
-	if err != nil {
-		logger(logFile, "can't get file list from: "+processed_directory)
-		w.Write([]byte("<html><h1>can't get file list from: " + processed_directory + "</html>"))
-	}
-
-	for _, file := range theFiles {
-
-		//Move data from /processed/ to /backup/
-		input_file := processed_directory + file.Name()
-		file_destination := backup_directory + file.Name()
-
-		err = MoveFile(input_file, file_destination)
-
-		if err != nil {
-
-			errCount++
-
-			logMessage := "ERROR: failed to move " + input_file + "to  " + file_destination + " error code: " + err.Error()
-			logger(logFile, logMessage)
-
-		} else {
-
-			logMessage := "OK: " + input_file + " moved " + " to " + file_destination
-			logger(logFile, logMessage)
-
-			fcount++
-
-		}
-	}
+	//Call backup function via the replay service API
 
 	//return count of files backed up
-	return fcount, err
+	return ocount, err
 }
 
 func get_worker_pool(workerType string, namespace string) (workers []string, count int) {
@@ -846,13 +811,6 @@ func (a adminPortal) selectionHandler(w http.ResponseWriter, r *http.Request) {
 
 	r.ParseForm()
 
-	/* //Can debug as follows:
-	for k, v := range r.Form {
-		fmt.Println("key:", k)
-		fmt.Println("val:", strings.Join(v, ""))
-	}
-	*/
-
 	selection := make(map[string]string)
 	params := r.URL.RawQuery
 
@@ -1014,9 +972,6 @@ func (a adminPortal) handler(w http.ResponseWriter, r *http.Request) {
 }
 
 func restart_loading_services(service_name string, sMax int, namespace string, w http.ResponseWriter, r *http.Request) string {
-
-	//reload Pulsar first (for now)
-	reloadPulsarQueue()
 
 	//scale down to 0, then scale up to the current max.
 	arg1 := "kubectl"

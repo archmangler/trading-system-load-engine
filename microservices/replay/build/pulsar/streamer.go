@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/apache/pulsar/pulsar-client-go/pulsar"
+	"github.com/apache/pulsar-client-go/pulsar"
 	"github.com/gomodule/redigo/redis"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
@@ -21,11 +21,15 @@ import (
 
 //Redis data storage details
 var redisAuthPass string = os.Getenv("REDIS_PASS")
-var sequenceReplayDBindex, _ = strconv.Atoi(os.Getenv("SEQUENCE_REPLAY_DB"))
+var sequenceReplayDBindex, _ = strconv.Atoi(os.Getenv("SEQUENCE_REPLAY_DB")) //sequenceReplayDBindex
+var backupDBindex, _ = strconv.Atoi(os.Getenv("SEQUENCE_BACKUP_DB"))         //backupDBindex
+
 var redisWriteConnectionAddress string = os.Getenv("REDIS_MASTER_ADDRESS") //address:port combination e.g  "my-release-redis-master.default.svc.cluster.local:6379"
 var port_specifier string = ":" + os.Getenv("METRICS_PORT_NUMBER")         // port for metrics service to listen on
 var loadStatus string = "pending"
 var namespace string = "pulsar" //namespace of the pulsar queueing service
+var backupStatus string = "pending"
+var restoreStatus string = "pending"
 
 type Order struct {
 	InstrumentId   string `json:"instrumentId"`
@@ -74,18 +78,72 @@ func recordFailureMetrics() {
 	}()
 }
 
-func streamSequence(start int, stop int, reader pulsar.Reader, ctx context.Context) (m map[int]string) {
+//func backupStream(reader pulsar.Reader, ctx context.Context) (m map[int]string) {
+func backupStream() (m map[int]string) {
 
+	// Listen on the topic for incoming messages
+	cnt := 0
+	streamContent := make(map[int]string)
+
+	client, err := pulsar.NewClient(pulsar.ClientOptions{URL: "pulsar://pulsar-broker.pulsar.svc.cluster.local:6650"})
+
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	defer client.Close()
+
+	reader, err := client.CreateReader(pulsar.ReaderOptions{
+		Topic:          "ragnarok/transactions/requests",
+		StartMessageID: pulsar.EarliestMessageID(),
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	defer reader.Close()
+
+	backupStatus = "working"
+
+	for reader.HasNext() {
+
+		msg, err := reader.Next(context.Background())
+
+		if err != nil {
+
+			backupStatus = "failed"
+
+			log.Fatalf("(backupStream) Error reading from topic: %v", err)
+
+		} else {
+
+			content := string(msg.Payload())
+
+			cnt++
+
+			streamContent[cnt] = content
+
+		}
+
+	}
+
+	backupStatus = "done"
+
+	fmt.Println("(backupStream) done streaming out orders: ", cnt)
+
+	return streamContent
+}
+
+func streamSequence(start int, stop int, reader pulsar.Reader, ctx context.Context) (m map[int]string) {
 	// Listen on the topic for incoming messages
 	outerCnt := 0
 	cnt := 0
 	var stream bool = false
+
 	streamContent := make(map[int]string)
 
-	for {
-
+	for reader.HasNext() {
 		msg, err := reader.Next(ctx)
-
 		if err != nil {
 
 			log.Fatalf("(streamSequence) Error reading from topic: %v", err)
@@ -110,20 +168,17 @@ func streamSequence(start int, stop int, reader pulsar.Reader, ctx context.Conte
 			}
 
 			if stream {
-
 				cnt++
 				content := string(msg.Payload())
-
 				streamContent[cnt] = content
-
 			}
-
 		}
 	}
 
 	fmt.Println("(streamSequence) done collecting sequence", outerCnt)
 
 	return streamContent
+
 }
 
 func jsonToMap(theString string) map[string]string {
@@ -158,7 +213,7 @@ func jsonToMap(theString string) map[string]string {
 	return dMap
 }
 
-func loadSequenceData(streamContent map[int]string) (string, error) {
+func loadSequenceData(streamContent map[int]string, dbIndex int) (string, error) {
 
 	status := "ok"
 	loadStatus := "pending"
@@ -189,15 +244,15 @@ func loadSequenceData(streamContent map[int]string) (string, error) {
 	defer conn.Close()
 
 	//select correct DB sequenceReplayDBindex
-	result, err := conn.Do("SELECT", sequenceReplayDBindex)
+	result, err := conn.Do("SELECT", dbIndex)
 
 	if err != nil {
 
-		fmt.Println("(write_order_to_redis) failed to select redis db: ", sequenceReplayDBindex, err.Error())
+		fmt.Println("(write_order_to_redis) failed to select redis db: ", dbIndex, err.Error())
 
 	} else {
 
-		fmt.Println("(write_order_to_redis) selecting redis db", sequenceReplayDBindex, result)
+		fmt.Println("(write_order_to_redis) selecting redis db", dbIndex, result)
 
 	}
 
@@ -259,50 +314,36 @@ func write_order_to_redis(msgCount int, errCount int, msgIndex int, d map[string
 
 func theThing(start int, stop int, w http.ResponseWriter, r *http.Request) {
 
-	//temp workaround. remove once resolved
-	//We need to do this for now due to: https://github.com/apache/pulsar/issues/15045
-
 	loadStatus = "reloading"
-	reloadQueueHack(namespace, loadStatus, w, r)
 
-	// Instantiate a Pulsar client
-	client, err := pulsar.NewClient(pulsar.ClientOptions{
-		URL: "pulsar://pulsar-broker.pulsar.svc.cluster.local:6650",
-	})
+	client, err := pulsar.NewClient(pulsar.ClientOptions{URL: "pulsar://pulsar-broker.pulsar.svc.cluster.local:6650"})
 
 	if err != nil {
-		log.Fatalf("Could not create client: %v", err)
+		log.Fatal(err)
 	}
 
-	// Use the client to instantiate a reader
+	defer client.Close()
+
 	reader, err := client.CreateReader(pulsar.ReaderOptions{
 		Topic:          "ragnarok/transactions/requests",
-		StartMessageID: pulsar.EarliestMessage,
+		StartMessageID: pulsar.EarliestMessageID(),
 	})
 
 	if err != nil {
-		log.Fatalf("Could not create reader: %v", err)
+		log.Fatal(err)
 	}
 
 	ctx := context.Background()
 
 	defer reader.Close()
-	defer client.Close()
 
 	//get and process the stream in one function
 	streamContent := streamSequence(start, stop, reader, ctx)
 
-	status, errorCount := loadSequenceData(streamContent)
+	status, errorCount := loadSequenceData(streamContent, sequenceReplayDBindex)
 
 	fmt.Println("loading status: ", status, errorCount)
-
-	//We need to do this for now due to: https://github.com/apache/pulsar/issues/15045
-	//go func() {
 	loadStatus = "reloaded"
-	reloadQueueHack(namespace, loadStatus, w, r) //temporary  hack to restart pular. Remove once resolved.
-	loadStatus = "pending"
-
-	//}()
 
 	w.Write([]byte("<html> loading sequence status: " + status + " errors: " + string(errorCount.Error()) + "</html>"))
 
@@ -436,7 +477,7 @@ func (a adminPortal) selectionHandler(w http.ResponseWriter, r *http.Request) {
 		start, _ := strconv.Atoi(start_of_sequence)
 		end, _ := strconv.Atoi(end_of_sequence)
 
-		fmt.Println("reading from " + start_of_sequence + " to " + end_of_sequence)
+		fmt.Println("reading from "+start_of_sequence+" to "+end_of_sequence, start, end)
 
 		theThing(start, end, w, r)
 
@@ -463,6 +504,42 @@ func (a adminPortal) selectionHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(html_content))
 }
 
+func (a adminPortal) backupHandler(w http.ResponseWriter, r *http.Request) {
+
+	backupStatus = "pending"
+
+	fmt.Println("(backupHandler) user requested backup of load queue")
+	w.Write([]byte(backupStatus))
+
+	//stream all messages in order out of Pulsar/Kafka
+	streamContent := backupStream()
+
+	//load to redis (backup db 7)
+	loadSequenceData(streamContent, backupDBindex)
+
+	for order := range streamContent {
+		fmt.Println("(backupHandler)", streamContent[order])
+	}
+
+	w.Write([]byte(backupStatus))
+
+}
+
+func (a adminPortal) restoreHandler(w http.ResponseWriter, r *http.Request) {
+
+	restoreStatus = "pending"
+	fmt.Println("(restoreHandler) user requested restore of load queue")
+	w.Write([]byte(restoreStatus))
+
+	//insert magic here
+	//1. [] retrieve from redis db7
+	//2. [] stream to pulsar (could take a long time)
+
+	restoreStatus = "done"
+	w.Write([]byte(restoreStatus))
+
+}
+
 func (a adminPortal) statusHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Println("(statusHandler) user requested load status")
 	w.Write([]byte(loadStatus))
@@ -487,7 +564,7 @@ func (a adminPortal) refreshHandler(w http.ResponseWriter, r *http.Request) {
 
 		w.Write([]byte(loadStatus))
 
-		fmt.Println("refreshing pulsar")
+		fmt.Println("(refreshHandler) refreshing pulsar")
 
 		time.Sleep(2 * time.Second)
 
@@ -583,6 +660,12 @@ func main() {
 
 	//initiate data load in sequence
 	http.HandleFunc("/streamer-start", admin.loadHandler)
+
+	//initiate pulsar/kafka queue backup to redis (in sequence)
+	http.HandleFunc("/streamer-backup", admin.backupHandler)
+
+	//initiate pulsar/kafka restore from redis (in sequence)
+	http.HandleFunc("/streamer-restore", admin.restoreHandler)
 
 	//reload the pulsar streaming system using refreshHandler
 	http.HandleFunc("/streamer-refresh", admin.refreshHandler)
