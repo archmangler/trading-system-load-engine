@@ -1,0 +1,23 @@
+USER-SUPPLIED VALUES:
+affinity:
+  anti_affinity: false
+bookkeeper:
+  replicaCount: 5
+broker:
+  configData:
+    autoSkipNonRecoverableData: "true"
+    managedLedgerDefaultAckQuorum: "3"
+    managedLedgerDefaultEnsembleSize: "3"
+    managedLedgerDefaultWriteQuorum: "3"
+  replicaCount: 5
+components:
+  autorecovery: false
+initialize: true
+proxy:
+  replicaCount: 5
+volumes:
+  persistence: false
+zookeeper:
+  replicaCount: 3
+#nodeSelector:
+#  agentpool: np004
