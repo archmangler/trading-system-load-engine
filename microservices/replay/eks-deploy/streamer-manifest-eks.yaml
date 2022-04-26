@@ -19,7 +19,7 @@ spec:
       serviceAccountName: streamer-internal-kubectl
       containers:
       - name: streamer
-        image: archbungle/streamer:pulsar-0.0.26d26
+        image: archbungle/streamer:pulsar-0.0.26d30
         imagePullPolicy: IfNotPresent
         env:
         - name: SEQUENCE_REPLAY_DB

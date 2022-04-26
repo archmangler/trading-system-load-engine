@@ -30,6 +30,7 @@ var loadStatus string = "pending"
 var namespace string = "pulsar" //namespace of the pulsar queueing service
 var backupStatus string = "pending"
 var restoreStatus string = "pending"
+var streamerCount int = 0
 
 type Order struct {
 	InstrumentId   string `json:"instrumentId"`
@@ -162,15 +163,22 @@ func streamSequence(start int, stop int, reader pulsar.Reader, ctx context.Conte
 				stream = false
 
 				fmt.Println("(streamSequence) stopping to count: (outer) ", outerCnt)
-				fmt.Println("(streamSequence) reached stream end. breaking out.")
+				fmt.Println("(streamSequence) reached stream end. breaking out (inner).")
 
 				break
 			}
 
 			if stream {
+
 				cnt++
 				content := string(msg.Payload())
 				streamContent[cnt] = content
+
+			} else {
+
+				fmt.Println("(streamSequence) reached stream end. breaking out (outer).", stream)
+				break
+
 			}
 		}
 	}
@@ -178,7 +186,6 @@ func streamSequence(start int, stop int, reader pulsar.Reader, ctx context.Conte
 	fmt.Println("(streamSequence) done collecting sequence", outerCnt)
 
 	return streamContent
-
 }
 
 func jsonToMap(theString string) map[string]string {
@@ -193,7 +200,7 @@ func jsonToMap(theString string) map[string]string {
 
 	json.Unmarshal([]byte(theString), &data)
 
-	fmt.Println("debug> ", data.InstrumentId, data.Symbol, data.UserId)
+	fmt.Println("(jsonToMap) ", data.InstrumentId, data.Symbol, data.UserId)
 
 	dMap["instrumentId"] = data.InstrumentId
 	dMap["symbol"] = data.Symbol
@@ -213,15 +220,12 @@ func jsonToMap(theString string) map[string]string {
 	return dMap
 }
 
-func loadSequenceData(streamContent map[int]string, dbIndex int) (string, error) {
+func loadSequenceData(streamContent map[int]string, dbIndex int) string {
 
-	status := "ok"
 	loadStatus := "pending"
 
 	fCnt := 0
 	errCnt := 0
-
-	var err error
 
 	//Connect to redis store to dump streamed order data
 	conn, err := redis.Dial("tcp", redisWriteConnectionAddress)
@@ -236,7 +240,7 @@ func loadSequenceData(streamContent map[int]string, dbIndex int) (string, error)
 	if err != nil {
 		panic(err)
 	} else {
-		fmt.Println("redis auth response: ", response)
+		fmt.Println("(loadSequenceData) redis auth response: ", response)
 	}
 
 	//Use defer to ensure the connection is always
@@ -272,7 +276,7 @@ func loadSequenceData(streamContent map[int]string, dbIndex int) (string, error)
 	fmt.Println("(loadSequenceData) loading status: ", loadStatus)
 
 	//report done
-	return status, err
+	return loadStatus
 
 }
 
@@ -314,6 +318,9 @@ func write_order_to_redis(msgCount int, errCount int, msgIndex int, d map[string
 
 func theThing(start int, stop int, w http.ResponseWriter, r *http.Request) {
 
+	fmt.Println("(theThing) calling sequence streamer function: ", streamerCount)
+	streamerCount++
+
 	loadStatus = "reloading"
 
 	client, err := pulsar.NewClient(pulsar.ClientOptions{URL: "pulsar://pulsar-broker.pulsar.svc.cluster.local:6650"})
@@ -334,22 +341,19 @@ func theThing(start int, stop int, w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := context.Background()
-
 	defer reader.Close()
 
 	//get and process the stream in one function
 	streamContent := streamSequence(start, stop, reader, ctx)
 
-	status, errorCount := loadSequenceData(streamContent, sequenceReplayDBindex)
+	fmt.Println("(theThing) streamed sequence of length: ", len(streamContent))
 
-	fmt.Println("loading status: ", status, errorCount)
+	status := loadSequenceData(streamContent, sequenceReplayDBindex)
+
+	fmt.Println("(theThing) loading status: ", status)
+
 	loadStatus = "reloaded"
-
-	w.Write([]byte("<html> loading sequence status: " + status + " errors: " + string(errorCount.Error()) + "</html>"))
-
-	status = errorCount.Error()
-
-	w.Write([]byte("<html> loading sequence status: " + status + "</html>"))
+	w.Write([]byte("<html> loading sequence status: " + loadStatus + "</html>"))
 
 }
 
@@ -471,15 +475,15 @@ func (a adminPortal) selectionHandler(w http.ResponseWriter, r *http.Request) {
 		start_of_sequence := strings.Join(r.Form["start"], " ")
 		end_of_sequence := strings.Join(r.Form["stop"], " ")
 
-		fmt.Println("running stream sequence with stop = " + string(end_of_sequence) + " and start = " + string(start_of_sequence))
+		fmt.Println("(selectionHandler) running stream sequence with stop = " + string(end_of_sequence) + " and start = " + string(start_of_sequence))
 		w.Write([]byte("<html> running stream sequence with stop = " + string(end_of_sequence) + " and start = " + string(start_of_sequence) + "</html>"))
 
 		start, _ := strconv.Atoi(start_of_sequence)
 		end, _ := strconv.Atoi(end_of_sequence)
 
-		fmt.Println("reading from "+start_of_sequence+" to "+end_of_sequence, start, end)
-
+		fmt.Println("(selectionHandler) start reading from "+start_of_sequence+" to "+end_of_sequence, start, end)
 		theThing(start, end, w, r)
+		fmt.Println("(selectionHandler) done reading from "+start_of_sequence+" to "+end_of_sequence, start, end)
 
 	}
 
@@ -515,7 +519,9 @@ func (a adminPortal) backupHandler(w http.ResponseWriter, r *http.Request) {
 	streamContent := backupStream()
 
 	//load to redis (backup db 7)
-	loadSequenceData(streamContent, backupDBindex)
+	status := loadSequenceData(streamContent, backupDBindex)
+
+	fmt.Println("(backupHandler) load queue backup result: ", status)
 
 	for order := range streamContent {
 		fmt.Println("(backupHandler)", streamContent[order])
@@ -543,6 +549,16 @@ func (a adminPortal) restoreHandler(w http.ResponseWriter, r *http.Request) {
 func (a adminPortal) statusHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Println("(statusHandler) user requested load status")
 	w.Write([]byte(loadStatus))
+}
+
+func (a adminPortal) backupStatusHandler(w http.ResponseWriter, r *http.Request) {
+	fmt.Println("(backupStatusHandler) user requested backup status")
+	w.Write([]byte(backupStatus))
+}
+
+func (a adminPortal) restoreStatusHandler(w http.ResponseWriter, r *http.Request) {
+	fmt.Println("(restoreStatusHandler) user requested restore status")
+	w.Write([]byte(restoreStatus))
 }
 
 func (a adminPortal) refreshHandler(w http.ResponseWriter, r *http.Request) {
@@ -606,9 +622,11 @@ func (a adminPortal) loadHandler(w http.ResponseWriter, r *http.Request) {
 	sos, err_sos := strconv.Atoi(start_of_sequence)
 	eos, err_eos := strconv.Atoi(end_of_sequence)
 
-	fmt.Println("type conversion debug: ", sos, eos, err_sos, err_eos)
+	fmt.Println("(loadHandler) type conversion debug: ", sos, eos, err_sos, err_eos)
 
+	fmt.Println("(loadHandler) start calling theThing() ...")
 	theThing(sos, eos, w, r)
+	fmt.Println("(loadHandler) done calling theThing() ...")
 
 }
 
@@ -657,6 +675,12 @@ func main() {
 
 	//read the load status data (statusHandler)
 	http.HandleFunc("/streamer-status", admin.statusHandler)
+
+	//read the backup status data (statusHandler)
+	http.HandleFunc("/streamer-backup-status", admin.backupStatusHandler)
+
+	//read the restore status data (statusHandler)
+	http.HandleFunc("/streamer-restore-status", admin.restoreStatusHandler)
 
 	//initiate data load in sequence
 	http.HandleFunc("/streamer-start", admin.loadHandler)

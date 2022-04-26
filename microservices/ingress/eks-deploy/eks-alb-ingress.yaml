@@ -68,7 +68,21 @@ spec:
             name: streamer-service
             port:
               number: 80
+      - path: /streamer-backup-status
+        pathType: Prefix
+        backend:
+          service:
+            name: streamer-service
+            port:
+              number: 80
       - path: /streamer-restore
+        pathType: Prefix
+        backend:
+          service:
+            name: streamer-service
+            port:
+              number: 80
+      - path: /streamer-restore-status
         pathType: Prefix
         backend:
           service:

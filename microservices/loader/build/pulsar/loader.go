@@ -438,11 +438,13 @@ func MoveFile(sourcePath, destPath string) error {
 func backupProcessedData(w http.ResponseWriter, r *http.Request) (int, error) {
 
 	ocount := 0
+
 	logger("(backupProcessedData)", "calling backup service to backup  load queue ...")
 
 	w.Write([]byte("<html><h1>calling backup service to backup  load queue  ...</h1><br> files </html>"))
 
 	//Call backup function via the replay service API
+	backupOrderQueue()
 
 	//return count of files backed up
 	return ocount, err
@@ -818,7 +820,7 @@ func (a adminPortal) selectionHandler(w http.ResponseWriter, r *http.Request) {
 	selection[parts[0]] = parts[1]
 
 	if selection[parts[0]] == "backupProcessedData" {
-		fmt.Println("running backups")
+		fmt.Println("running load queue backups")
 		status, err := backupProcessedData(w, r)
 
 		if err != nil {
@@ -960,6 +962,10 @@ func (a adminPortal) handler(w http.ResponseWriter, r *http.Request) {
   <input type="submit" name="LoadRequestSequence" value="load request sequence" style="padding:20px;" style="font-family:verdana;"> 
   <html style="font-family:verdana;">Start of sequence:</html><input type="text" name="start" >
   <html style="font-family:verdana;">End of Sequence:</html><input type="text" name="stop" >
+  </form>
+
+  <form action="/selected?param=backupProcessedData" method="post">
+    <input type="submit" name="backupProcessedData" value="backup order queue" style="padding:20px;">
   </form>
 
   </div>
@@ -1224,24 +1230,23 @@ func loadOrderSequence(msgStartSeq int, msgStopSeq int) (status string, err erro
 	fmt.Println("(loadOrderSequence) start=", msgStartSeq, " stop=", msgStopSeq)
 
 	//don't block on this ...
-	go func() {
-		resp, err = http.Get(replayServiceAddress + "/streamer-start?start=" + strconv.Itoa(msgStartSeq) + "?stop=" + strconv.Itoa(msgStopSeq))
+	//go func() {
+	resp, err = http.Get(replayServiceAddress + "/streamer-start?start=" + strconv.Itoa(msgStartSeq) + "?stop=" + strconv.Itoa(msgStopSeq))
 
-		if err != nil {
-			log.Fatalln(err)
-		}
+	if err != nil {
+		log.Fatalln(err)
+	}
 
-		body, err = ioutil.ReadAll(resp.Body)
+	body, err = ioutil.ReadAll(resp.Body)
 
-		if err != nil {
-			fmt.Println("(loadOrderSequence) http read error reading streamer-start response body", err)
-		}
+	if err != nil {
+		fmt.Println("(loadOrderSequence) http read error reading streamer-start response body", err)
+	}
 
-		status = string(body)
-		fmt.Println("(loadOrderSequence) triggered replay start: ", status)
+	status = string(body)
+	fmt.Println("(loadOrderSequence) triggered replay start: ", status)
 
-	}()
-
+	//}()
 	//	[x] 2. Wait until it's status "reloaded" (until /streamer-status/ is not `pending`)
 	//	  [x] 2.1. Poll the status endpoint ("API": curl /streamer-status/) pending|started|completed
 
@@ -1760,6 +1765,74 @@ func bulkOrderLoad(inputDBIndex int) {
 		<-results
 
 	}
+}
+
+func backupOrderQueue() (status string, err error) {
+
+	status = "pending"
+
+	logger(logFile, "(backupOrderQueue) backing up the order queue to redis ...")
+
+	resp, err := http.Get(replayServiceAddress + "/streamer-backup")
+
+	if err != nil {
+		fmt.Println("(backupOrderQueue) http read error getting /streamer-backup", err)
+	}
+
+	body, err := ioutil.ReadAll(resp.Body)
+
+	if err != nil {
+		fmt.Println("(backupOrderQueue) http read error reading backup service response body", err)
+	}
+
+	status = string(body)
+
+	fmt.Println("(backupOrderQueue) Getting backup service status: ", status)
+
+	//don't block on this ...
+	go func() {
+		resp, err = http.Get(replayServiceAddress + "/streamer-backup-status")
+
+		if err != nil {
+			log.Fatalln(err)
+		}
+
+		body, err = ioutil.ReadAll(resp.Body)
+
+		if err != nil {
+			fmt.Println("(backupOrderQueue) http read error reading streamer-backup-status response body", err)
+		}
+
+		status = string(body)
+
+		fmt.Println("(backupOrderQueue) triggered order queue backup start: ", status)
+
+	}()
+
+	for {
+		resp, err = http.Get(replayServiceAddress + "/streamer-backup-status")
+
+		if err != nil {
+			fmt.Println("(backupOrderQueue) error getting /streamer-backup-status endpoint", err)
+		}
+
+		body, err = ioutil.ReadAll(resp.Body)
+
+		if err != nil {
+			fmt.Println("(backupOrderQueue) error reading streamer-backup-status response body", err)
+			break
+		}
+
+		status = string(body)
+
+		fmt.Println("(backupOrderQueue) Getting backup service status: ", status)
+
+		if status == "done" {
+			fmt.Println("(backupOrderQueue) finished backing up order queue: ", status)
+			break
+		}
+	}
+	return status, err
 }
 
 func reloadPulsarQueue() {
