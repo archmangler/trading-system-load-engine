@@ -59,6 +59,16 @@ var cancelBatchLimit, _ = strconv.Atoi(os.Getenv("CANCEL_BATCH_LIMIT"))
 var errorCount int = 0
 var requestCount int = 0
 
+type APIResponse struct {
+	Orders []Order `json:"orders"`
+}
+
+type Order struct {
+	OrderId      int `json:"orderId"`
+	UserId       int `json:"userId"`
+	InstrumentId int `json:"instrumentId"`
+}
+
 type Payload struct {
 	InstrumentId   string `json:"instrumentId"`
 	Symbol         string `json:"symbol"`
@@ -102,7 +112,7 @@ func sign_api_request(apiSecret string, requestBody string) (s string) {
 }
 
 //4. Build up the request body
-func create_order(secret_key string, api_key string, base_url string, orderParameters map[string]string, orderIndex int, request_id string) {
+func create_order(secret_key string, api_key string, base_url string, orderParameters map[string]string, orderIndex int, request_id string, userId int) {
 
 	//Request body for POSTing a Trade
 	params, err := json.Marshal(orderParameters)
@@ -165,7 +175,7 @@ func create_order(secret_key string, api_key string, base_url string, orderParam
 
 	fmt.Println("(create_order) got response output: ", "(", orderIndex, ")", sb)
 
-	batchCancels(sb, orderParameters, secret_key, api_key, request_id) //batchCancels(stringBody string, orderParameters map[string]string, secret_key string, api_key string, request_id int)
+	batchCancels(sb, orderParameters, secret_key, api_key, request_id, userId) //batchCancels(stringBody string, orderParameters map[string]string, secret_key string, api_key string, request_id int)
 
 	//record this as a success metric
 	recordSuccessMetrics()
@@ -173,7 +183,7 @@ func create_order(secret_key string, api_key string, base_url string, orderParam
 }
 
 //little wrapper function to ease the pain ...
-func batchCancels(stringBody string, orderParameters map[string]string, secret_key string, api_key string, request_id string) {
+func batchCancels(stringBody string, orderParameters map[string]string, secret_key string, api_key string, request_id string, userId int) {
 
 	batchIndex++
 
@@ -184,74 +194,121 @@ func batchCancels(stringBody string, orderParameters map[string]string, secret_k
 	json.Unmarshal([]byte(stringBody), &data)
 
 	if strings.Contains(data.Status, matchString) {
+
 		//batch up the successful orders for later cancellations
 		fmt.Println("(batchCancels) logging sent order: id = ", data.Id, " status = ", data.Status)
 
-		getOrders(batchIndex, secret_key, api_key, base_url, request_id)
+		if batchIndex == cancelBatchLimit {
+
+			fmt.Println("(batchCancels) reached batch limit ", batchIndex)
+
+			requestParams := make(map[string]string)
+			requestParams["userId"] = strconv.Itoa(userId)
+			requestParams["limit"] = strconv.Itoa(cancelBatchLimit)
+
+			getOrders(batchIndex, secret_key, api_key, base_url, requestParams)
+
+		}
 
 	} else {
 		fmt.Println("(batchCancels) skip: ", batchIndex, " response content body ", stringBody)
 	}
 }
 
-func getOrders(limit int, secret_key string, api_key string, base_url string, request_id string) {
-
-	orderGetParameters := `{"userId":` + request_id + `,limit":` + strconv.Itoa(limit) + `}`
+func getOrders(batchIndex int, secret_key string, api_key string, base_url string, requestParameters map[string]string) {
 
 	//Request body for POSTing a Trade
-	params, err := json.Marshal(orderGetParameters)
+	params, err := json.Marshal(requestParameters)
 
 	if err != nil {
-		fmt.Println("(getOrders) failed to jsonify: ", params)
+		fmt.Println("(getOrders) 1) failed to jsonify: ", params)
 	}
 
 	requestString := string(params)
 
 	//debug
-	fmt.Println("(getOrders) request parameters -> ", requestString)
+	fmt.Println("(getOrders) 2) request parameters -> ", requestString)
 	sig := sign_api_request(secret_key, requestString)
 
 	//debug
-	fmt.Println("(getOrders) request signature -> ", sig)
+	fmt.Println("(getOrders) 3) request signature -> ", sig)
 	trade_request_url := "https://" + base_url + "/api/getOrders"
 
 	//Set the client connection custom properties
-	fmt.Println("(getOrders) setting client connection properties.")
+	fmt.Println("(getOrders) 4) setting client connection properties.")
+
 	client := http.Client{}
 
 	//POST body
-	fmt.Println("(getOrders) creating new POST request: ")
+	fmt.Println("(getOrders) 5) creating new POST request: ")
 	request, err := http.NewRequest("POST", trade_request_url, bytes.NewBuffer(params))
-
 	//set some headers
-	fmt.Println("(getOrders) setting request headers ...")
+
+	fmt.Println("(getOrders) 6) setting request headers ...")
+
 	request.Header.Set("Content-type", "application/json")
 	request.Header.Set("requestToken", api_key)
 	request.Header.Set("signature", sig)
 
 	if err != nil {
-		fmt.Println("(getOrders) error after header addition: ", err.Error())
+
+		fmt.Println("(getOrders) 7) error after header addition: ", err.Error())
+
+	} else {
+
+		//Execute the post
+		fmt.Println("(getOrders) 7) executing the POST ...", request)
+
+		resp, err := client.Do(request)
+
+		if err != nil {
+
+			fmt.Println("(getOrders) 8) error after executing POST: ", err.Error())
+
+		} else {
+
+			fmt.Println("(getOrders) 8) response after executing POST: ", resp)
+
+		}
+
+		defer resp.Body.Close()
+
+		fmt.Println("(getOrders) 9) reading response body ...")
+
+		body, err := ioutil.ReadAll(resp.Body)
+
+		if err != nil {
+
+			fmt.Println("(getOrders) 10) error reading response body: ", err.Error())
+
+		} else {
+
+			sb := string(body)
+			fmt.Println("(getOrders) 10) got response output: ", sb)
+
+		}
+
+		var response APIResponse
+
+		json.Unmarshal(body, &response)
+
+		fmt.Println("(getOrders) 11) response marshal: ", response)
+
+		orderCancelParameters := make(map[string]string)
+
+		for orderIndex, p := range response.Orders {
+			fmt.Println("(getOrders) 12) listing past orders for cancellation: ", orderIndex, " orderId = ", p.OrderId, " UserId = ", p.UserId, " InstrumentId = ", p.InstrumentId)
+
+			//{"instrumentId": instrument_id,"userId": user_id, "clOrdId": order_id}
+
+			orderCancelParameters["instrumentId"] = strconv.Itoa(p.InstrumentId)
+			orderCancelParameters["userId"] = strconv.Itoa(p.UserId)
+			orderCancelParameters["clOrdId"] = strconv.Itoa(p.OrderId)
+
+			cancel_order(secret_key, api_key, base_url, orderCancelParameters, orderIndex)
+		}
+
 	}
-
-	fmt.Println("(getOrders) executing the POST to ", trade_request_url)
-	resp, err := client.Do(request)
-
-	if err != nil {
-		fmt.Println("(getOrders) error after executing POST", err.Error())
-	}
-
-	defer resp.Body.Close()
-	fmt.Println("(getOrders) reading response body ...")
-	body, err := ioutil.ReadAll(resp.Body)
-
-	if err != nil {
-		fmt.Println("(getOrders) error reading response body: ")
-		log.Fatalln(err)
-	}
-
-	sb := string(body)
-
-	fmt.Println("(getOrders) got response output: ", sb)
 
 }
 
@@ -636,24 +693,13 @@ func consume_payload_data(client pulsar.Client, topic string, id int, credential
 
 				fmt.Println("(consume_payload_data) updated order details: ", "(", orderIndex, ")", order)
 
-				create_order(credentials["secret_key"], credentials["api_key"], base_url, order, orderIndex, credentials["request_id"])
+				userId, _ := strconv.Atoi(credentials["request_id"])
 
-				//cancel after a certain percentage of orders have been created
-				if batchIndex == cancelBatchLimit {
-					cancel_orders(credentials, cancelBatchLimit, batchIndex)
-				} else {
-					fmt.Println("(consume_payload_data) processed order count: ", batchIndex)
-				}
+				create_order(credentials["secret_key"], credentials["api_key"], base_url, order, orderIndex, credentials["request_id"], userId)
 
 			}
 		}
 	}
-
-}
-
-func cancel_orders(credentials map[string]string, cancelLimit int, batchCount int) {
-
-	fmt.Println("(cancel_orders) batch cancelling orders: ", batchCount, " = ", cancelLimit)
 
 }
 
