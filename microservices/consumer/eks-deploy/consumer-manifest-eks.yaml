@@ -22,7 +22,7 @@ spec:
 #        agentpool: np003
       containers:
       - name: consumer
-        image: archbungle/load-consumer:pulsar-0.0.41d5
+        image: archbungle/load-consumer:pulsar-0.0.41d6
         imagePullPolicy: IfNotPresent
         env:
         - name: API_BASE_URL

@@ -178,6 +178,7 @@ func batchCancels(stringBody string, orderParameters map[string]string, secret_k
 	batchIndex++
 
 	matchString := `sent`
+
 	data := Response{}
 
 	json.Unmarshal([]byte(stringBody), &data)
@@ -185,7 +186,9 @@ func batchCancels(stringBody string, orderParameters map[string]string, secret_k
 	if strings.Contains(data.Status, matchString) {
 		//batch up the successful orders for later cancellations
 		fmt.Println("(batchCancels) logging sent order: id = ", data.Id, " status = ", data.Status)
+
 		getOrders(batchIndex, secret_key, api_key, base_url, request_id)
+
 	} else {
 		fmt.Println("(batchCancels) skip: ", batchIndex, " response content body ", stringBody)
 	}
