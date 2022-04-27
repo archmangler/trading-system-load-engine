@@ -54,6 +54,7 @@ var account int = 0                                            //updated with th
 var batchIndex int = 0 //counter for batching up cancels
 var cancelMap map[int]string
 var cancelBatchLimit, _ = strconv.Atoi(os.Getenv("CANCEL_BATCH_LIMIT"))
+var cancelAllThreshold, _ = strconv.Atoi(os.Getenv("CANCEL_ALL_THRESHOLD")) //cancelAllThreshold - run a cancellall after this many placed orders
 
 //Global Error Counter during lifetime of this service run
 var errorCount int = 0
@@ -196,7 +197,7 @@ func batchCancels(stringBody string, orderParameters map[string]string, secret_k
 	if strings.Contains(data.Status, matchString) {
 
 		//batch up the successful orders for later cancellations
-		fmt.Println("(batchCancels) logging sent order: id = ", data.Id, " status = ", data.Status)
+		fmt.Println("(batchCancels) logging sent order: id = ", data.Id, " status = ", data.Status, " limit: ", batchIndex, "==", cancelBatchLimit)
 
 		if batchIndex == cancelBatchLimit {
 
@@ -207,6 +208,9 @@ func batchCancels(stringBody string, orderParameters map[string]string, secret_k
 			requestParams["limit"] = strconv.Itoa(cancelBatchLimit)
 
 			getOrders(batchIndex, secret_key, api_key, base_url, requestParams)
+
+			//reset the batch count
+			batchIndex = 0
 
 		}
 
@@ -378,6 +382,73 @@ func cancel_order(secret_key string, api_key string, base_url string, orderCance
 
 	//record this as a success metric
 	recordSuccessCancelMetrics()
+
+}
+
+func cancelAllOrders(secret_key string, api_key string, base_url string, requestParameters map[string]string) {
+
+	//Request body for POSTing a Trade
+	params, err := json.Marshal(requestParameters)
+
+	if err != nil {
+		fmt.Println("(cancelAllOrders) failed to jsonify: ", params)
+	}
+
+	requestString := string(params)
+
+	//debug
+	fmt.Println("(cancelAllOrders) request parameters -> ", requestString)
+	sig := sign_api_request(secret_key, requestString)
+
+	//debug
+	fmt.Println("(cancelAllOrders) request signature -> ", sig)
+	trade_request_url := "https://" + base_url + "/api/cancelAll"
+
+	//Set the client connection custom properties
+	fmt.Println("(cancelAllOrders) setting client connection properties.")
+
+	client := http.Client{}
+
+	//POST body
+	fmt.Println("(cancelAllOrders) creating new POST request: ")
+
+	request, err := http.NewRequest("POST", trade_request_url, bytes.NewBuffer(params))
+	//set some headers
+
+	fmt.Println("(cancelAllOrders) setting request headers ...")
+
+	request.Header.Set("Content-type", "application/json")
+	request.Header.Set("requestToken", api_key)
+	request.Header.Set("signature", sig)
+
+	if err != nil {
+		fmt.Println("(cancelAllOrders) error after header addition: ")
+		log.Fatalln(err)
+	}
+
+	//Execute the post
+	fmt.Println("(cancelAllOrders) executing the POST ...")
+
+	resp, err := client.Do(request)
+
+	if err != nil {
+		fmt.Println("(cancelAllOrders) error after executing POST: ")
+		log.Fatalln(err)
+	}
+
+	defer resp.Body.Close()
+
+	fmt.Println("(cancelAllOrders) reading response body ...")
+
+	body, err := ioutil.ReadAll(resp.Body)
+
+	if err != nil {
+		fmt.Println("(cancelAllOrders) error reading response body: ")
+		log.Fatalln(err)
+	}
+
+	sb := string(body)
+	fmt.Println("(cancelAllOrders) got response output: ", sb)
 
 }
 
@@ -698,6 +769,22 @@ func consume_payload_data(client pulsar.Client, topic string, id int, credential
 				create_order(credentials["secret_key"], credentials["api_key"], base_url, order, orderIndex, credentials["request_id"], userId)
 
 			}
+
+			//Do a bulk order cancellation every 100 orders:
+			if orderIndex == cancelAllThreshold {
+
+				fmt.Println("(consume_payload_data) cancelling all orders after ", orderIndex, " orders", " threshold: ", cancelAllThreshold)
+
+				//please clean this up
+				request_id, _ := strconv.Atoi(credentials["request_id"])
+				userId := request_id
+				requestParams := make(map[string]string)
+				requestParams["userId"] = strconv.Itoa(userId)
+
+				cancelAllOrders(credentials["secret_key"], credentials["api_key"], base_url, requestParams)
+
+			}
+
 		}
 	}
 

@@ -22,7 +22,7 @@ spec:
 #        agentpool: np003
       containers:
       - name: consumer
-        image: archbungle/load-consumer:pulsar-0.0.41d10
+        image: archbungle/load-consumer:pulsar-0.0.41d13
         imagePullPolicy: IfNotPresent
         env:
         - name: API_BASE_URL
@@ -44,6 +44,8 @@ spec:
           value: "1"
         - name: CANCEL_BATCH_LIMIT
           value: "10"
+        - name: CANCEL_ALL_THRESHOLD
+          value: "100"
         - name: PULSAR_BROKER_SERVICE_ADDRESS
           value: "pulsar://pulsar-broker.pulsar.svc.cluster.local:6650"
         - name: PULSAR_CONSUMER_SUBSCRIPTION_NAME
