@@ -1,0 +1,151 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: streamer
+  namespace: ragnarok
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: streamer
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: streamer
+    spec:
+#      nodeSelector:
+#        agentpool: np001
+      serviceAccountName: streamer-internal-kubectl
+      containers:
+      - name: streamer
+        image: archbungle/streamer:pulsar-0.0.26d30
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: SEQUENCE_REPLAY_DB
+          value: "6"
+        - name: SEQUENCE_BACKUP_DB
+          value: "7"
+        - name: S3_BUCKET_ADDRESS
+          value: "s3://eqnx-tradedata-source001"
+        - name: REMOTE_SOURCE_DIRECTORY
+          value: "/inputs" 
+        - name: NAMESPACE
+          value: "ragnarok"
+        - name: NUM_JOBS
+          value: "1"
+        - name: NUM_WORKERS
+          value: "1"
+        - name: DEFAULT_REPLICA_MAX
+          value: "10"
+        - name: PULSAR_BROKER_SERVICE_ADDRESS
+          value: "pulsar://pulsar-broker.pulsar.svc.cluster.local:6650"
+        - name: PULSAR_CONSUMER_SUBSCRIPTION_NAME
+          value: "sub007"
+        - name: MESSAGE_TOPIC
+          value: "ragnarok/transactions/requests"
+        - name: KAFKA_BROKER_SERVICE_ADDRESS
+          value: "kafka-cp-kafka.kafka.svc.cluster.local:9092"
+        - name: KAFKA_BROKER1_ADDRESS
+          value: "kafka-0.kafka-headless.kafka.svc.cluster.local:9092"
+        - name: KAFKA_BROKER2_ADDRESS
+          value: "kafka-1.kafka-headless.kafka.svc.cluster.local:9092"
+        - name: KAFKA_BROKER3_ADDRESS
+          value: "kafka-2.kafka-headless.kafka.svc.cluster.local:9092"
+        - name: REDIS_ALLOCATOR_NS_INDEX
+          value: "11"
+        - name: REDIS_MASTER_ADDRESS
+          value: "ragnarok-redis-master.redis.svc.cluster.local:6379"
+        - name: REDIS_REPLICA_ADDRESS
+          value: "ragnarok-redis-replicas.redis.svc.cluster.local:6379"
+        - name: REDIS_PASS
+          value: "Yj7Oe21iHz"
+        - name: CONSUMER_GROUP
+          value: "cg001"
+        - name: KCAT_PATH
+          value: "/usr/bin/kcat"
+        - name: DATA_SOURCE_DIRECTORY
+          value: "/datastore/inputs"
+        - name: LOCAL_LOGFILE_PATH
+          value: "/applogs"
+        - name: DEADLETTER_TOPIC
+          value: "deadLetter"
+        - name: METRICS_TOPIC
+          value: "metrics"      
+        - name: METRICS_PORT_NUMBER
+          value: "80"
+        - name: START_MESSAGE_SEQUENCE_ID
+          value: "1000"
+        - name: STOP_MESSAGE_SEQUENCE_ID
+          value: "1100"
+        - name: GRAFANA_DASHBOARD_URL
+          value: "http://13.67.56.239/d/AtqYwRA7k/transaction-matching-system-load-metrics?orgId=1" 
+        - name: ADMIN_PASSWORD
+          value: "somethingrandom"
+        ports:
+          - name: tcp-80
+            containerPort: 80
+      imagePullSecrets:
+        - name: ragnarok
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: streamer-service
+  namespace: ragnarok
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: streamer
+  ports:
+    - name: tcp-80
+      port: 80
+      targetPort: 80
+      protocol: TCP
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: streamer-modify-pods-to-sa
+  namespace: ragnarok
+subjects:
+  - kind: ServiceAccount
+    name: streamer-internal-kubectl
+    namespace: ragnarok 
+roleRef:
+  kind: Role
+  name: streamer-modify-pods
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: streamer-modify-pods
+  namespace: ragnarok
+rules:
+  - apiGroups: ["","apps","apps/v1","extensions"]
+    resources:
+      - pods
+      - deployments
+      - statefulsets
+      - statefulsets/scale
+      - statefulsets/status
+    verbs:
+      - get
+      - list
+      - delete
+      - scale
+      - restart
+      - rollout
+      - watch
+      - create
+      - update
+      - deletecollection
+      - patch
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: streamer-internal-kubectl
+  namespace: ragnarok
