@@ -17,16 +17,6 @@ try:
 except ImportError:
     import _thread as thread
 
-url = "eqo-sit.com"
-username="ngocdf1_qa_indi_7uxp@mailinator.com"
-password="Eqonex@123456"
-account="2661"
-token="l1Q21BJzMZb39hWI"
-secret_key="c6Z36Y2mckce7MWsGxi0HZ1n"
-event="S"
-requestId="Test123"
-type=6
-
 async def main():
 
     data={}
@@ -68,29 +58,27 @@ async def main():
 
 if __name__ == "__main__":
 
-    continue_running = 0
+    #get from kubernetes manifest env
+    url = os.environ['WS_URL']
+    username = os.environ['WS_USERNAME']
+    password = os.environ['WS_PASSWORD']
+    account = os.environ['USER_ACCOUNT_ID']
+    token = os.environ['TOKEN']
+    secret_key=os.environ['SECRET_KEY']
 
-    for i in range(10):
-      print("debug> ",i) 
-      print(os.environ)
-      time.sleep(10)
+    event="S"
+    requestId="Test123"
+    type=6
 
     if "CONTINUE" in os.environ:
        continue_running = int(os.environ['CONTINUE'])
-       for i in range(10):
-        print("debug> ",i) 
-        time.sleep(10)
+       print("enabled to run") 
        if continue_running == 0:
           print("exiting ...",continue_running)
-          for i in range(10):
-           print("debug> ",i) 
           sys.exit()
        else:
           print("(main) running websocket subscriber ...")
           asyncio.run(main())
     else:
-       for i in range(10):
-        print("debug> exiting ...",i)
-        time.sleep(10)
+       print("unsubscribing ...",i)
        sys.exit()
-
