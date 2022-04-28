@@ -7,7 +7,11 @@
 #./build.sh -n ws-subscriber -t 0.0.1 -p true -d true 
 #   build locally, no push to reg
 
-registry_name="605125156525.dkr.ecr.ap-southeast-1.amazonaws.com"
+#registry_name="605125156525.dkr.ecr.ap-southeast-1.amazonaws.com"
+#repo_name="ws-subscriber"
+#base_cmd="docker build --tag"
+
+registry_name="archbungle"
 repo_name="ws-subscriber"
 base_cmd="docker build --tag"
 
@@ -59,7 +63,7 @@ while getopts n:t:p:d flag
    do
    case "${flag}" in
         n) image_name=${OPTARG};;
-        t) image_tag=pulsar-${OPTARG};;
+        t) image_tag=${OPTARG};;
         p) push_option=${OPTARG};;
 #        d) debug=${OPTARG};;
    esac
