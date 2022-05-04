@@ -1,0 +1,66 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: load-replay
+  namespace: ragnarok
+spec:
+  selector:
+    matchLabels:
+      app: load-replay
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: load-replay
+    spec:
+      containers:
+      - name: load-replay
+        image: 605125156525.dkr.ecr.ap-southeast-1.amazonaws.com/load-replay:0.0.19
+        imagePullPolicy: IfNotPresent 
+        env:
+        - name: PORT_NUMBER
+          value: "80"
+        - name: ADMIN_PASSWORD
+          value: "Crypt0N0m1c0n##"
+        - name: LOCAL_LOGFILE_PATH
+          value: "/var/log"
+        - name: OUTPUT_DIR_PATH
+          value: "/processed"
+        ports:
+          - name: tcp-80
+            containerPort: 80
+      imagePullSecrets:
+        - name: ragnarok
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sink-service
+  namespace: ragnarok
+  labels:
+    app: sink-service
+spec:
+  type: ClusterIP
+  selector:
+    app: load-replay
+  ports:
+    - name: tcp-80
+      port: 80
+      targetPort: 80
+      protocol: TCP
+
+---
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: processed-claim
+  namespace: ragnarok
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 20Gi
+  storageClassName: default
+

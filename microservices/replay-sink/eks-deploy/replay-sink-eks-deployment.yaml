@@ -1,0 +1,73 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: load-sink
+  namespace: ragnarok
+spec:
+  selector:
+    matchLabels:
+      app: load-sink
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: load-sink
+    spec:
+      containers:
+      - name: load-sink
+        image: archbungle/load-sink:0.0.20
+        imagePullPolicy: IfNotPresent 
+        securityContext:
+          privileged: true
+        env:
+        - name: PORT_NUMBER
+          value: "80"
+        - name: ADMIN_PASSWORD
+          value: "Crypt0N0m1c0n##"
+        - name: LOCAL_LOGFILE_PATH
+          value: "/var/log"
+        - name: OUTPUT_DIR_PATH
+          value: "/processed"
+        ports:
+          - name: tcp-80
+            containerPort: 80
+        volumeMounts:
+          - name: processed-data
+            mountPath: /processed
+      volumes:
+        - name: processed-data
+          persistentVolumeClaim:
+            claimName: processed-claim
+      imagePullSecrets:
+        - name: ragnarok
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sink-service
+  namespace: ragnarok
+  labels:
+    app: sink-service
+spec:
+  type: ClusterIP
+  selector:
+    app: load-sink
+  ports:
+    - name: tcp-80
+      port: 80
+      targetPort: 80
+      protocol: TCP
+---
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: processed-claim
+  namespace: ragnarok
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 20Gi
+  storageClassName: gp2
