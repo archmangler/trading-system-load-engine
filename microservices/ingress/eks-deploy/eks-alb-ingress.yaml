@@ -26,6 +26,20 @@ spec:
             name: sink-service
             port:
               number: 80
+      - path: /replay-admin
+        pathType: Prefix
+        backend:
+          service:
+            name: replay-service
+            port:
+              number: 80
+      - path: /replay-orders
+        pathType: Prefix
+        backend:
+          service:
+            name: replay-service
+            port:
+              number: 80
       - path: /ingest-status
         pathType: Prefix
         backend:

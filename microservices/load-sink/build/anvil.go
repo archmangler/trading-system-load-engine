@@ -121,12 +121,16 @@ func logger(logFile string, logMessage string) {
 }
 
 func (h *orderHandlers) orders(w http.ResponseWriter, r *http.Request) {
+
+	logger(logFile, "(orders handler) processing incoming order request ...")
+
 	switch r.Method {
 	case "GET":
 		h.get(w, r)
 		return
 	case "POST":
 		h.publish(w, r)
+		logger(logFile, "(orders handler) creating an order ...")
 		return
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)
@@ -344,6 +348,8 @@ func (a adminPortal) handler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	*/
+
+	logger(logFile, "(newAdminPortal handler) entering admin portal ...")
 
 	w.Write([]byte("<html><h1>Anvil Management Portal</h1></html>"))
 	w.Write([]byte("<html> Successful requests: " + strconv.Itoa(orderCount) + "</html>"))

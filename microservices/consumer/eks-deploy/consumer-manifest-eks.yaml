@@ -26,7 +26,6 @@ spec:
         imagePullPolicy: IfNotPresent
         env:
         - name: API_BASE_URL
-#          value: "trading-api.dexp-dev.com"
           value: "trading-api.dexp-qa.com"
         - name: TRADING_API_PASSWORD
           value: "Eqonex@123456"
