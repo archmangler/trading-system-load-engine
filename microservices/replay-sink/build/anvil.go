@@ -30,8 +30,8 @@ curl -s http://localhost:8080/orders| jq -r
 
 */
 
-var logFile string = os.Getenv("LOCAL_LOGFILE_PATH") + "/load-sink.log" // /var/log
-var output_dir string = os.Getenv("OUTPUT_DIR_PATH") + "/"              // e.g "/processed"
+var logFile string = os.Getenv("LOCAL_LOGFILE_PATH") + "/load-replay.log" // /var/log
+var output_dir string = os.Getenv("OUTPUT_DIR_PATH") + "/"                // e.g "/processed"
 
 var port_specifier string = ":" + os.Getenv("PORT_NUMBER") // set the metrics endpoint port in the manifest
 var orderCount int = 0                                     //total request count for current runtime
@@ -40,22 +40,22 @@ var errorCount int = 0                                     //total error count f
 //Instrumentation
 var (
 	requestsSuccessful = promauto.NewCounter(prometheus.CounterOpts{
-		Name: "loadsink_successul_requests_total",
+		Name: "loadreplay_successul_requests_total",
 		Help: "The total number of processed requests",
 	})
 
 	requestsFailed = promauto.NewCounter(prometheus.CounterOpts{
-		Name: "loadsink_failed_requests_total",
+		Name: "loadreplay_failed_requests_total",
 		Help: "The total number of failed requests",
 	})
 
 	writesSuccessful = promauto.NewCounter(prometheus.CounterOpts{
-		Name: "loadsink_successul_filewrites_total",
+		Name: "loadreplay_successul_filewrites_total",
 		Help: "The total number files successfully written",
 	})
 
 	writesFailed = promauto.NewCounter(prometheus.CounterOpts{
-		Name: "loadsink_failed_filewrites_total",
+		Name: "loadreplay_failed_filewrites_total",
 		Help: "The total number of file writes failed",
 	})
 )
@@ -88,33 +88,6 @@ func recordFailedMetrics() {
 
 	}()
 }
-
-/*
-
-//Payload message format example
-//NOTE:  This needs to be customised to the target application's needs
-
-[
-  {
-    "Name": "newOrder",
-    "ID": "8276",
-    "Time": "8276",
-    "Data": "new order",
-    "Eventname": "newOrder"
-  }
-]
-
-//In Consumer Pool:
-
-type Payload struct {
-	Name      string `json:"name"`
-	ID        string `json:"id"`
-	Time      string `json:"time"`
-	Data      string `json:"data"`
-	Eventname string `json:"eventname"`
-}
-
-*/
 
 //Customised to the use case
 type Order struct {
@@ -276,6 +249,12 @@ func store_load_output_file(input_file string, msgPayload string) {
 	}
 	_, err = f.WriteString(msgPayload)
 
+	if err != nil {
+
+		fmt.Println("(store_load_output_file) failed towrite message payload: ", err.Error())
+
+	}
+
 	f.Close()
 }
 
@@ -323,32 +302,6 @@ func (h *orderHandlers) publish(w http.ResponseWriter, r *http.Request) {
 
 		return
 	}
-
-	/* Example for JSON unmarshalling using a defined data struct:
-
-	    //Unmarshalling to the message structure
-		var order Order
-
-		err = json.Unmarshal(bodyBytes, &order)
-
-		if err != nil {
-			w.WriteHeader(http.StatusBadRequest)
-			w.Write([]byte(err.Error()))
-
-			errorCount++
-			recordFailedMetrics()
-
-			fmt.Println("ERROR in request: ", orderCount+1, " error: ", err)
-
-			return
-		}
-
-		order.ID = fmt.Sprintf("%d", time.Now().UnixNano())
-
-		h.Lock()
-		h.store[order.ID] = order
-		defer h.Unlock()
-	*/
 
 	orderCount++ //increment total incoming api requests
 
@@ -398,7 +351,7 @@ func (a adminPortal) handler(w http.ResponseWriter, r *http.Request) {
 	}
 	*/
 
-	w.Write([]byte("<html><h1>Anvil Management Portal</h1></html>"))
+	w.Write([]byte("<html><h1>Anvil Management Replay Portal</h1></html>"))
 	w.Write([]byte("<html> Successful requests: " + strconv.Itoa(orderCount) + "</html>"))
 	w.Write([]byte("<html> Failed requests: " + strconv.Itoa(errorCount) + "</html>"))
 
@@ -406,7 +359,7 @@ func (a adminPortal) handler(w http.ResponseWriter, r *http.Request) {
 
 func main() {
 
-	fmt.Println("Load sink service listening on ", port_specifier)
+	fmt.Println("Load replay service listening on ", port_specifier)
 
 	//Administrative Web Interface
 	admin := newAdminPortal()
@@ -420,7 +373,7 @@ func main() {
 	http.HandleFunc("/sink-order", orderHandlers.getOrder)
 
 	//admin portal
-	http.HandleFunc("/sink-admin", admin.handler)
+	http.HandleFunc("/replay-admin", admin.handler)
 
 	//metrics endpoint
 	http.Handle("/metrics", promhttp.Handler())
