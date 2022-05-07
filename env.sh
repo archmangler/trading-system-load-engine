@@ -24,9 +24,6 @@ function assumeRoleGetToken() {
 
     printf "getting calller identitity \n"
     aws sts get-caller-identity
-
-    printf "listing some resources ..."
-    aws ec2 describe-instances --region ap-southeast-1
 }
 
 assumeRoleGetToken
