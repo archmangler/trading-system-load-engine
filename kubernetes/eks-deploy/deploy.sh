@@ -1,24 +1,25 @@
 #!/bin/bash
 
 function install_prerequisites () {
-  brew install awscli
+  echo "skipping aws installation on Linux (for Mac only)"
+  #brew install awscli
   #force it ...
-  brew link --overwrite awscli
+  #brew link --overwrite awscli
 }
 
 function install_authenticator () {
-   brew install aws-iam-authenticator
+   #On Macosx and for olrder versions of aws cli: https://docs.aws.amazon.com/eks/latest/userguide/install-aws-iam-authenticator.html
+   #brew install aws-iam-authenticator
+   aws eks get-token 
 }
 
 function eks_deploy () {
-
- printf "initializing EKS terraform state ..."
-
+ printf "******************** initializing EKS terraform state ..."
  terraform init
+ printf "******************** generating EKS terraform plan ..."
  terraform plan -out terraform.plan
-#TEMPORARY DISABLE
-# terraform apply terraform.plan
-
+ #TEMPORARY DISABLE
+ #terraform apply terraform.plan
 }
 
 function get_kube_credentials () {
