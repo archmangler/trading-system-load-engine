@@ -16,7 +16,8 @@ function eks_deploy () {
 
  terraform init
  terraform plan -out terraform.plan
- terraform apply terraform.plan
+#TEMPORARY DISABLE
+# terraform apply terraform.plan
 
 }
 
