@@ -8,7 +8,7 @@
 #WARNING: source these from env ...
 #Examples:
 #export AWS_DEPLOY_REGION="ap-southeast-1"
-#export AWS_CLUSTER_NAME="ragnarok-eks-mjollner-poc"
+#export AWS_CLUSTER_NAME="ragnarok-eks-mjollner-dev"
 #export AWS_ACCOUNT_NUMBER="524513049339"
 AWS_ACCOUNT_NUMBER=$(aws sts get-caller-identity | jq -r .Account | xargs)
 

@@ -10,7 +10,7 @@ provider "aws" {
 data "aws_availability_zones" "available" {}
 
 locals {
-  cluster_name = "ragnarok-eks-mjollner-poc" // Alternartively: cluster_name = "ragnarok-eks-${random_string.suffix.result}"
+  cluster_name = "${AWS_CLUSTER_NAME}" // Alternartively: cluster_name = "ragnarok-eks-${random_string.suffix.result}"
 }
 
 resource "random_string" "suffix" {
