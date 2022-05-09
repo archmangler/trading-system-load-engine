@@ -9,8 +9,12 @@ provider "aws" {
 
 data "aws_availability_zones" "available" {}
 
+variable "aws_cluster_name" {
+  type = string
+}
+
 locals {
-  cluster_name = "${AWS_CLUSTER_NAME}" // Alternartively: cluster_name = "ragnarok-eks-${random_string.suffix.result}"
+  cluster_name = var.aws_cluster_name
 }
 
 resource "random_string" "suffix" {
