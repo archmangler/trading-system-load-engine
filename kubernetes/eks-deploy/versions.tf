@@ -1,29 +1,36 @@
 terraform {
+
+  backend "s3" {
+    bucket = "ragnarok-tfstate"
+    key    = "ragnarok-eks-mjollner-dev"
+    region = "ap-southeast-1"
+  }
+
   required_providers {
     aws = {
       source  = "hashicorp/aws"
       version = ">= 3.20.0"
-    }
+   }
 
-    random = {
+   random = {
       source  = "hashicorp/random"
       version = "3.1.0"
-    }
+   }
 
-    local = {
+   local = {
       source  = "hashicorp/local"
       version = "2.1.0"
-    }
+   }
 
-    null = {
+   null = {
       source  = "hashicorp/null"
       version = "3.1.0"
-    }
+   }
 
-    kubernetes = {
+   kubernetes = {
       source  = "hashicorp/kubernetes"
       version = ">= 2.0.1"
-    }
+   }
   }
 
   required_version = ">= 0.14"
