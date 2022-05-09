@@ -237,7 +237,7 @@ deploy_redis_services
 ##make this selectable at some point!
 ##deploy_kafka_services
 deploy_pulsar_services
-deploy_local_storage
+#deploy_local_storage
 update_registry_access
 deploy_sink_service
 deploy_producer_service
