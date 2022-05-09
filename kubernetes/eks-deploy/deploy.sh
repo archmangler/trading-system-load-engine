@@ -22,7 +22,7 @@ function eks_deploy () {
  echo "running: terraform plan -var aws_cluster_name=$TF_VAR_AWS_CLUSTER_NAME -out terraform.plan"
  terraform plan -var aws_cluster_name=$TF_VAR_AWS_CLUSTER_NAME -out terraform.plan
  #TEMPORARY DISABLE
- terraform apply terraform.plan
+ #terraform apply terraform.plan
 }
 
 function get_kube_credentials () {
