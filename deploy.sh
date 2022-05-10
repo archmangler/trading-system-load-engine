@@ -237,13 +237,15 @@ deploy_redis_services
 ##make this selectable at some point!
 ##deploy_kafka_services
 deploy_pulsar_services
+
+#Microservices for Load Testing Engine
 ##deploy_local_storage
-update_registry_access
-deploy_sink_service
-deploy_producer_service
-deploy_consumer_service
-deploy_loader_service
-deploy_source_data_storage
-deploy_data_ingestor
-deploy_replay_service
+#update_registry_access
+#deploy_sink_service
+#deploy_producer_service
+#deploy_consumer_service
+#deploy_loader_service
+#deploy_source_data_storage
+#deploy_data_ingestor
+#deploy_replay_service
 
