@@ -24,8 +24,8 @@ function create_eks_storage_access() {
 
 
 function check_kubernetes_access () {
-  printf "checking state of kubernetes cluster before going ahead ...\n"
-  kubectl get nodes -o wide
+  printf "checking access to kubernetes cluster before going ahead ...\n"
+  eksctl get clusters
 }
 
 check_kubernetes_access
