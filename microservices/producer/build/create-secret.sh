@@ -25,6 +25,6 @@ kubectl delete secret ragnarok \
 #    --docker-password="${DOCKER_PASSWORD}"
 
 #for dockerhub private registry ...
-echo "debug: kubectl create secret docker-registry ragnarok --namespace ragnarok --docker-server=${DOCKERHUB_SERVER} --docker-username=${DOCKERHUB_USERNAME} --docker-password=${DOCKERHUB_PASSWORD}"
+echo "debug: kubectl create secret docker-registry ragnarok --namespace ragnarok --docker-server=${DOCKERHUB_SERVER} --docker-username=${DOCKERHUB_USER} --docker-password=${DOCKERHUB_PASS}"
 
-kubectl create secret docker-registry ragnarok --namespace ragnarok --docker-server=${DOCKERHUB_SERVER} --docker-username="${DOCKERHUB_USERNAME}" --docker-password="${DOCKERHUB_PASSWORD}"
+kubectl create secret docker-registry ragnarok --namespace ragnarok --docker-server=${DOCKERHUB_SERVER} --docker-username="${DOCKERHUB_USER}" --docker-password="${DOCKERHUB_PASS}"
