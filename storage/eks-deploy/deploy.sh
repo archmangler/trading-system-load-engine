@@ -14,18 +14,18 @@ POLICY_ARN="arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess"
 
 function create_eks_storage_access() {
   echo "eksctl utils associate-iam-oidc-provider --cluster=$AWS_CLUSTER_NAME"
-  eksctl utils associate-iam-oidc-provider --cluster=$AWS_CLUSTER_NAME 
+  eksctl utils associate-iam-oidc-provider --cluster=$AWS_CLUSTER_NAME  --region ${AWS_DEPLOY_REGION} 
   echo "eksctl delete iamserviceaccount --cluster=$AWS_CLUSTER_NAME --name=eks-s3-access --namespace=$namespace"
-  eksctl delete iamserviceaccount --cluster=$AWS_CLUSTER_NAME --name=eks-s3-access --namespace=$namespace
+  eksctl delete iamserviceaccount --cluster=$AWS_CLUSTER_NAME --name=eks-s3-access --namespace=$namespace  --region ${AWS_DEPLOY_REGION}
   echo "eksctl create iamserviceaccount --cluster=$AWS_CLUSTER_NAME --name=eks-s3-access --namespace=$namespace --attach-policy-arn="$POLICY_ARN" --approve --override-existing-serviceaccounts"
-  eksctl create iamserviceaccount --cluster=$AWS_CLUSTER_NAME --name=eks-s3-access --namespace=$namespace --attach-policy-arn="$POLICY_ARN" --approve --override-existing-serviceaccounts
+  eksctl create iamserviceaccount --cluster=$AWS_CLUSTER_NAME --name=eks-s3-access --namespace=$namespace --attach-policy-arn="$POLICY_ARN" --approve --override-existing-serviceaccounts  --region ${AWS_DEPLOY_REGION}
  printf "============ end deploying order data storage archive =================="
 }
 
 
 function check_kubernetes_access () {
   printf "checking access to kubernetes cluster before going ahead ...\n"
-  eksctl get clusters
+  eksctl get clusters --region ${AWS_DEPLOY_REGION}
 }
 
 check_kubernetes_access
