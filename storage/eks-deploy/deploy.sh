@@ -5,7 +5,8 @@ POLICY_ARN="arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess"
 
 function s3_deploy () {
  printf "============ begin deploying order data storage archive =================="
- printf "initializing S3 terraform state ..."
+ current_dir = `pwd`
+ printf "initializing S3 terraform state in $current_dir ..."
  terraform init
  terraform plan -out terraform.plan
  terraform apply terraform.plan
