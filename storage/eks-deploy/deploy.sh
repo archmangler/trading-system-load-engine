@@ -21,5 +21,12 @@ function create_eks_storage_access() {
  printf "============ end deploying order data storage archive =================="
 }
 
+
+function check_kubernetes_access () {
+  printf "checking state of kubernetes cluster before going ahead ...\n"
+  kubectl get nodes -o wide
+}
+
+check_kubernetes_access
 s3_deploy
 create_eks_storage_access
