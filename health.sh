@@ -96,6 +96,13 @@ function check_kafka_topic_health () {
     printf "$OUT\n"
 }
 
+function check_redis_cluster_health () {
+   printf "\n"
+   OUT=$(kubectl get pods -n redis)
+   printf "$OUT\n"
+   printf "\n"
+}
+
 #1.
 
 text_divider "checking api endpoint reachable"
@@ -126,7 +133,7 @@ text_divider "checking consumer pool health"
 check_consumer_pool_health
 
 #7.
-text_divider "checking kafka topic status"
-check_kafka_topic_health 
+text_divider "checking redis cluster status"
+check_redis_cluster_health 
 
 exit 1
