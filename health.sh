@@ -9,8 +9,9 @@ function check_kubernetes_api_endpoint() {
 function check_kubernetes_ingress() {
   if [[ $target_cloud == *"azure"* ]]
   then
-    EIP=$(kubectl get service ingress-nginx-controller -n ingress-basic -o json| jq -r '.spec.loadBalancerIP')
-    echo $EIP
+    #EIP=$(kubectl get service ingress-nginx-controller -n ingress-basic -o json| jq -r '.spec.loadBalancerIP')
+    EIP=$(kubectl get ingress -n ragnarok -o json| jq -r '.items|.[]|.status|.loadBalancer|.ingress|.[]|.hostname')
+    echo "external IP: " $EIP
     for i in sink-admin loader-admin sink-orders
     do
       output=$(curl -s "$EIP/$i")
