@@ -5,11 +5,14 @@
 # https://docs.aws.amazon.com/eks/latest/userguide/aws-load-balancer-controller.html
 # https://docs.aws.amazon.com/eks/latest/userguide/alb-ingress.html
 
+set -x
+
 #WARNING: source these from env ...
 #Examples:
 #export AWS_DEPLOY_REGION="ap-southeast-1"
-#export AWS_CLUSTER_NAME="ragnarok-eks-mjollner-poc"
+#export AWS_CLUSTER_NAME="ragnarok-eks-mjollner-dev"
 #export AWS_ACCOUNT_NUMBER="524513049339"
+
 AWS_ACCOUNT_NUMBER=$(aws sts get-caller-identity | jq -r .Account | xargs)
 
 #curl -o iam_policy.json https://raw.githubusercontent.com/kubernetes-sigs/aws-load-balancer-controller/v2.3.1/docs/install/iam_policy.json

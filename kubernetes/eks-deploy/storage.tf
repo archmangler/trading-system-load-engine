@@ -38,10 +38,6 @@ resource "aws_iam_policy" "source_policy" {
   })
 }
 
-
-//EC2 - S3 Access policy Configuration
-
-#IAM policy to allow access from EC2 instances (later EKS service)
 resource "aws_iam_role" "source_role" {
   name = "source_role_dataops"
   assume_role_policy = jsonencode({
@@ -76,7 +72,6 @@ resource "aws_iam_role" "source_role_eks" {
   })
 }
 
-#Attach policy to role
 resource "aws_iam_role_policy_attachment" "source_bucket_policy" {
   role       = aws_iam_role.source_role.name
   policy_arn = aws_iam_policy.source_policy.arn
@@ -117,7 +112,6 @@ resource "aws_key_pair" "data_ops" {
   key_name   = "data_ops_key_staging"
   public_key = "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAACAQDACyG2S7IJ1acCqWzCX3fYSN5aMZ6YzQKDbkhypYeQHUbe6hgJpzG9oiOHLgO6n7c33Km7Rh5Q+rzg7deyO5OWsKh1pXLrryeyIJXpQV9+sJnxYhxpAFh7bremQya1UIryAQ5NJGdxQDWKmX2QsuroAEa8RK2PiVIvB6EOfA6twfd/HvO5Ez0w2APiD+N5VS3AUjVJ0myaTYOFdVtauJj/Ix3Kzdo67dZ5K2iyK+d/J5L1IXJghxp98/UYGtIBpoFOFVgd/u+MoSln5Ey6JpMkp73vPu7iqR2gcJKJxxhEzH2dwYcnGmOhP7evaERBy7wJQ7nF7nbBi7SPtpnJyXAwrprLfUzKePIXUzBR3kMEZ1oIZoL3bSDJrFFbrc/if24rS1KYtGr2w2v3Issedc5Wwi9ERl8GVp7BEYVJQQOjAmXfEDafDC6MlAyZDbetE1MeEehC1w4R8Yjldxj8Ur1wfY0hHy9MpTo6CzvgskqP4w9YYOvN547HoyC0meF1dT04w9UMiA9on+fD+SatbQLc5TluhDd9xX9cOXG2RUTzNuZyG3ghXkcey0p7eyzRkY+xszeSN4d9TJRaxY4Dc1LyUgHhkky8XQTrLFhOkG8hDjYzlRAlQn6o8v0Toqaj2cNbySm4H0j4BNuC9j/uAc+mvYlIr1WVaH8sh/XKmeHoYw== traiano.welcome.contractor@accenture.com"
 }
-
 
 //Accessing S3 (from EC2 instance with correct policy):
 //List      : aws s3 ls s3://eqnx-tradedata-source --recursive --human-readable --summarize
