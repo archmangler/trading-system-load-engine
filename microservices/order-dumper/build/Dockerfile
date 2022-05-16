@@ -6,7 +6,7 @@ RUN apk update && \
 RUN apk add openjdk8=8.302.08-r2
 WORKDIR /app
 RUN apk add bash
-ADD kafka-dump-tool-0.0.1-SNAPSHOT-distribution.tar.gz /app/
+ADD kafka-dump-tool-distribution.tar.gz /app/
 COPY go.mod ./
 COPY go.sum ./
 COPY wrapper.sh ./

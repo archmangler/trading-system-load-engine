@@ -1,8 +1,6 @@
-# A target/dummy service for load testing
+# A kafka dumperservice for load testing
 
-- This "dummy" service exposes and API and some instrumentation for evaluating impact of load testing on a black box application.
-- It is replaced by the system under test in a real scenario
-- It is structured as a web service running in a pod on kubernetes which can be configured to scale out in response to load (e.g with kubernetes hpa)
+NOTE: You need to build the kafka dump tool and copy the .tar.gz to this directory using the name "kafka-dump-tool-distribution.tar.gz".
 
 # Deployment
 
