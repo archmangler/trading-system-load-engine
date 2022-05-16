@@ -1,0 +1,73 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: order-dumper
+  namespace: ragnarok
+spec:
+  selector:
+    matchLabels:
+      app: order-dumper
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: order-dumper
+    spec:
+      containers:
+      - name: order-dumper
+        image: archbungle/order-dumper:0.0.31
+        imagePullPolicy: IfNotPresent 
+        securityContext:
+          privileged: true
+        env:
+        - name: PORT_NUMBER
+          value: "80"
+        - name: ADMIN_PASSWORD
+          value: "Crypt0N0m1c0n##"
+        - name: LOCAL_LOGFILE_PATH
+          value: "/var/log/"
+        - name: OUTPUT_DIR_PATH
+          value: "/orders"
+        ports:
+          - name: tcp-80
+            containerPort: 80
+        volumeMounts:
+          - name: orders-data
+            mountPath: /orders
+      volumes:
+        - name: orders-data
+          persistentVolumeClaim:
+            claimName: dumper-claim
+      imagePullSecrets:
+        - name: ragnarok
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dumper-service
+  namespace: ragnarok
+  labels:
+    app: dumper-service
+spec:
+  type: ClusterIP
+  selector:
+    app: order-dumper
+  ports:
+    - name: tcp-80
+      port: 80
+      targetPort: 80
+      protocol: TCP
+---
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: dumper-claim
+  namespace: ragnarok
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 20Gi
+  storageClassName: gp2
