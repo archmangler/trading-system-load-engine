@@ -7,16 +7,16 @@ metadata:
 spec:
   selector:
     matchLabels:
-      app: order-dumper
+      app: dumper
   replicas: 1
   template:
     metadata:
       labels:
-        app: order-dumper
+        app: dumper
     spec:
       containers:
       - name: order-dumper
-        image: archbungle/order-dumper:0.0.32
+        image: archbungle/order-dumper:0.0.33
         imagePullPolicy: IfNotPresent 
         securityContext:
           privileged: true
@@ -48,11 +48,11 @@ metadata:
   name: dumper-service
   namespace: ragnarok
   labels:
-    app: dumper-service
+    app: dumper
 spec:
   type: ClusterIP
   selector:
-    app: order-dumper
+    app: dumper
   ports:
     - name: tcp-80
       port: 80

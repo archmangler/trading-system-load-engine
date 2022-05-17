@@ -351,7 +351,7 @@ func (a adminPortal) handler(w http.ResponseWriter, r *http.Request) {
 
 	logger(logFile, "(newAdminPortal handler) entering admin portal ...")
 
-	w.Write([]byte("<html><h1>Anvil Management Portal</h1></html>"))
+	w.Write([]byte("<html><h1>Order Dumper Management Portal</h1></html>"))
 	w.Write([]byte("<html> Successful requests: " + strconv.Itoa(orderCount) + "</html>"))
 	w.Write([]byte("<html> Failed requests: " + strconv.Itoa(errorCount) + "</html>"))
 
@@ -366,14 +366,11 @@ func main() {
 
 	orderHandlers := newOrderHandlers()
 
-	//POST URL for orders
-	http.HandleFunc("/sink-orders", orderHandlers.orders)
-
 	//GET URL for specific order information
-	http.HandleFunc("/sink-order", orderHandlers.getOrder)
+	http.HandleFunc("/dumper-status", orderHandlers.getOrder)
 
 	//admin portal
-	http.HandleFunc("/sink-admin", admin.handler)
+	http.HandleFunc("/dumper-admin", admin.handler)
 
 	//metrics endpoint
 	http.Handle("/metrics", promhttp.Handler())
