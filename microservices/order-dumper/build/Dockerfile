@@ -14,7 +14,7 @@ COPY wrapper.sh ./
 RUN go mod download
 COPY *.go ./
 
-RUN go build -o /anvil
+RUN go get github.com/gomodule/redigo/ && go get github.com/prometheus/client_golang/prometheus && go get github.com/prometheus/client_golang/prometheus/promauto && go get github.com/prometheus/client_golang/prometheus/promhttp &&  go build -o /dumper
 RUN mkdir -p /processed
 
 RUN ln -sf /dev/stdout /var/log/load-sink.log
