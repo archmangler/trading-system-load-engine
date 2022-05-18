@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
       - name: order-dumper
-        image: archbungle/order-dumper:0.0.37
+        image: archbungle/order-dumper:0.0.41
         imagePullPolicy: IfNotPresent 
         securityContext:
           privileged: true
@@ -53,6 +53,8 @@ spec:
           value: "kafka-0.kafka-headless.kafka.svc.cluster.local:9092"
         - name: KAFKA_BROKER2_ADDRESS
           value: "kafka-1.kafka-headless.kafka.svc.cluster.local:9092"
+        - name: KAFKA_SOURCE_TOPIC
+          value: "funfunfun"
         - name: KAFKA_BROKER3_ADDRESS
           value: "kafka-2.kafka-headless.kafka.svc.cluster.local:9092"
         - name: REDIS_ALLOCATOR_NS_INDEX

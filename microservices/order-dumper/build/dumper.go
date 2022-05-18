@@ -1,10 +1,8 @@
 package main
 
 import (
-	"bufio"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
@@ -20,9 +18,11 @@ import (
 )
 
 //get running parameters from container environment
-var sourceDirectory string = os.Getenv("DATA_SOURCE_DIRECTORY")         // "/datastore/inputs"
+var sourceTopic string = os.Getenv("KAFKA_SOURCE_TOPIC")                //main  topic for inbound/historical  orders
+var kafkaBroker string = os.Getenv("KAFKA_BROKER_SERVICE_ENDPOINT")     //kafka broker from order environment
 var s3bucketAddress string = os.Getenv("S3_BUCKET_ADDRESS")             //"s3://tradedatasource/inputs"
 var remoteSourceDir string = os.Getenv("REMOTE_SOURCE_DIRECTORY") + "/" //path under s3/efs/afs share: e.g "/inputs" (leading slash, no trailing slash)
+var orderDumpDBIndex = os.Getenv("ORDER_DUMP_DB_INDEX")                 //ORDER_DUMP_DB_INDEX , index of  the REDIS  db to dump orders in
 
 //Redis data storage details
 var redisAuthPass string = os.Getenv("REDIS_PASS")
@@ -78,55 +78,6 @@ func recordFailureMetrics() {
 	}()
 }
 
-func get_s3source_files(s3bucketAddress string) {
-
-	//This is a very nasty workaround with potentially negative performance implications
-	//aws s3 cp s3://tradedatasource/inputs ./source --recursive
-
-	fmt.Println("(get_s3source_files): copying down source files from remote")
-
-	arg1 := "aws"
-	arg2 := "s3"
-	arg3 := "sync"          //"sync" instead of "cp" for max parallelism
-	arg4 := s3bucketAddress //"s3://tradedatasource"
-	arg5 := sourceDirectory //arg6 := "--recursive"
-
-	out, err := exec.Command(arg1, arg2, arg3, arg4, arg5).Output()
-
-	fmt.Println("got output length: ", len(out))
-
-	if err != nil {
-		fmt.Println("(get_s3source_files) failed: ", err)
-	} else {
-		fmt.Println("(get_s3source_files) ok: done copying files down from remote")
-	}
-
-}
-
-func list_s3source_files(s3bucketAddress string) (s []byte) {
-
-	//This is a very nasty workaround with potentially negative performance implications
-	fmt.Println("(list_s3source_files) listing source files in remote storage ...")
-
-	arg1 := "aws"
-	arg2 := "s3"
-	arg3 := "ls"
-	arg4 := s3bucketAddress //"s3://tradedatasource"
-	arg5 := "--recursive"
-	arg6 := "--human-readable"
-	arg7 := "--summarize"
-
-	out, err := exec.Command(arg1, arg2, arg3, arg4, arg5, arg6, arg7).Output()
-
-	if err != nil {
-		fmt.Println("sign_api_request error!", err)
-	} else {
-		fmt.Println("Done getting list of input files ...")
-	}
-
-	return out
-}
-
 func newAdminPortal() *adminPortal {
 
 	fmt.Println("(debug) creating the admin portal")
@@ -158,39 +109,6 @@ func backupProcessedData(w http.ResponseWriter, r *http.Request) (fcount int, er
 	return fcount, err
 }
 
-//get a list of all files in the directory for loading
-func getInputFiles(sourceDir string) (fileList []string) {
-
-	files, err := ioutil.ReadDir(sourceDir + "/" + remoteSourceDir)
-
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	for _, file := range files {
-		fmt.Println(file.Name())
-		fileList = append(fileList, file.Name())
-	}
-
-	return fileList
-}
-
-func getFileContent(fPath string) (content []string, err error) {
-
-	file, err := os.Open(fPath)
-	if err != nil {
-		return nil, err
-	}
-	defer file.Close()
-
-	var lines []string
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		lines = append(lines, scanner.Text())
-	}
-	return lines, scanner.Err()
-}
-
 func jsonToMap(theString string) map[string]string {
 
 	dMap := make(map[string]string)
@@ -216,39 +134,67 @@ func jsonToMap(theString string) map[string]string {
 	return dMap
 }
 
-func loadHistoricalData(sourceDir string, w http.ResponseWriter, r *http.Request) (string, error) {
+func getOrderStream(sourceTopic string, kafkaBroker string) []string {
+
+	//Dump orders from kafka using kafka tool
+	//kafka-dump-tool-0.0.1-SNAPSHOT/bin/run.sh  --kafka-server=kafka1.dexp-qa.internal --kafka-port=4455 -q INPUT --topic=me0001 --output-file=in-msg.txt --start-time=2022-03-26T00:53:21.000Z --end-time=2022-03-26T01:02:24.000Z
+
+	s := make([]string, 0)
+
+	fmt.Println("(getOrderStream) getting order stream from kafka broker ...", kafkaBroker)
+
+	arg1 := "kafka-dump-tool-0.0.1-SNAPSHOT/bin/run.sh"
+	arg2 := "--kafka-server=kafka1.dexp-qa.internal"
+	arg3 := "--kafka-port=4455"
+	arg4 := "-q INPUT"
+	arg5 := "--topic=me0001"
+	arg6 := "--output-file=in-msg.txt"
+	arg7 := "--start-time=2022-03-26T00:53:21.000Z"
+	arg8 := "--end-time=2022-03-26T01:02:24.000Z"
+
+	out, err := exec.Command(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8).Output()
+	temp := strings.Split(string(out), "\n")
+
+	if err != nil {
+
+		fmt.Println("kafka dumper error! ", err)
+		fmt.Println("kafka dumper output: ", temp)
+
+	} else {
+
+		fmt.Println("Done dumping orders ...", out)
+
+	}
+
+	return s
+
+}
+
+func getMessageContent(oName string) (content []string, err error) {
+
+	return content, err
+
+}
+
+func loadHistoricalData(sourceTopic string, w http.ResponseWriter, r *http.Request) (string, error) {
 
 	status := "ok"
 	loadStatus = "started"
 	var err error
-	fCnt := 0
+	oCnt := 0
 	errCnt := 0
 
-	w.Write([]byte("<br><html>Using data in " + sourceDir + " for new load test: " + strconv.Itoa(fCnt) + " files." + "</html>"))
-	logger("loadHistoricalData", "Using data in "+sourceDir+" for new load test")
-
-	//fileList := getInputFiles(sourceDir)
+	w.Write([]byte("<br><html>Using data in " + sourceTopic + " for new load test: " + "</html>"))
+	logger("loadHistoricalData", "Using data in "+sourceTopic+" for new load test")
 
 	//get available files from source bucket
-	files := list_s3source_files(s3bucketAddress)
-	temp := strings.Split(string(files), "\n")
-	var source []string
+	orderList := getOrderStream(sourceTopic, kafkaBroker) //stream messages out from Kafka broker endpoint
 
-	//extract the file names
-	for i := range temp {
-		fields := strings.Fields(temp[i])
-		if strings.Contains(temp[i], "inputs") {
-			source = append(source, fields[4])
-		}
-	}
+	/*
 
-	//copy the files down to local
-	get_s3source_files(s3bucketAddress)
+		DO  stuff here to process the rtetrieved order stream
 
-	//read what local files we got
-	fileList := getInputFiles(sourceDirectory)
-
-	fmt.Println("debug -> ", fileList)
+	*/
 
 	//Connect to redis store to dump ingested order data
 	conn, err := redis.Dial("tcp", redisWriteConnectionAddress)
@@ -270,27 +216,28 @@ func loadHistoricalData(sourceDir string, w http.ResponseWriter, r *http.Request
 	//properly closed before exiting the main() function.
 	defer conn.Close()
 
-	for f := range fileList {
+	for o := range orderList {
 
-		fName := sourceDir + remoteSourceDir + string(fileList[f]) //hope this works out ...
-		fmt.Println("read local file: " + fName)
+		oName := string(orderList[o]) //hope this works out ...
 
-		content, err := getFileContent(fName)
+		fmt.Println("reading out order: " + oName)
+
+		content, err := getMessageContent(oName) //extract message content for insertion into redis
 
 		if err != nil {
 
-			fmt.Println("couldn't get file contents for ", f)
+			fmt.Println("couldn't get message contents for ", o)
 
 		} else {
 
-			fData := strings.Join(content, "")
+			oData := strings.Join(content, "")
 
-			order := jsonToMap(fData)
+			order := jsonToMap(oData)
 
 			fmt.Println("debug (order data): ", order)
 
 			//process to redis ...
-			fCnt, errCnt = write_binary_message_to_redis(fCnt, errCnt, f, order, conn)
+			oCnt, errCnt = write_binary_message_to_redis(oCnt, errCnt, o, order, conn)
 
 			loadStatus = "working"
 
@@ -333,7 +280,7 @@ func (a adminPortal) selectionHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if selection[parts[0]] == "LoadHistoricalData" {
-		status, err := loadHistoricalData(sourceDirectory, w, r)
+		status, err := loadHistoricalData(sourceTopic, w, r)
 
 		if err != nil {
 			w.Write([]byte("<html> Woops! ... " + err.Error() + "</html>"))
@@ -370,7 +317,7 @@ func (a adminPortal) initialiseHandler(w http.ResponseWriter, r *http.Request) {
 	//don't block on this (the user can poll the status url for updates ...)
 	go func() {
 
-		status, err := loadHistoricalData(sourceDirectory, w, r)
+		status, err := loadHistoricalData(sourceTopic, w, r)
 
 		if err != nil {
 			w.Write([]byte(err.Error()))
@@ -383,18 +330,8 @@ func (a adminPortal) initialiseHandler(w http.ResponseWriter, r *http.Request) {
 
 func (a adminPortal) statusHandler(w http.ResponseWriter, r *http.Request) {
 
-	//Basic API Auth Example
-	//Disabled for Testing
-
-	/*user, pass, ok := r.BasicAuth()
-	if !ok || user != "admin" || pass != a.password {
-		w.WriteHeader(http.StatusUnauthorized)
-		w.Write([]byte("401 - unauthorized"))
-		return
-	}
-	*/
-
 	fmt.Println("(debug) Accessing admin portal status handler.")
+
 	w.Write([]byte(loadStatus))
 
 }
@@ -455,7 +392,7 @@ func write_binary_message_to_redis(msgCount int, errCount int, msgIndex int, d m
 	ClOrdId := d["clOrdId"]
 
 	//select correct DB (0)
-	conn.Do("SELECT", 3)
+	conn.Do("SELECT", orderDumpDBIndex)
 
 	//REDIFY
 	fmt.Println("inserting : ", InstrumentId, Symbol, UserId, Side, OrdType, Price, Price_scale, Quantity, Quantity_scale, Nonce, BlockWaitAck, ClOrdId)
