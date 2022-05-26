@@ -22,7 +22,7 @@ spec:
 #        agentpool: np003
       containers:
       - name: fxconsumer
-        image: archbungle/load-fxconsumer:pulsar-0.0.1
+        image: archbungle/load-fxconsumer:pulsar-0.0.1d3
         imagePullPolicy: IfNotPresent
         env:
         - name: API_BASE_URL
@@ -85,5 +85,5 @@ spec:
   ports:
     - name: tcp-80
       port: 80
-      nodePort: 30081
+      nodePort: 30079
       protocol: TCP

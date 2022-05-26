@@ -4,11 +4,11 @@
 #Usage: 
 #   build push to remote reg: ./build.sh -n image_name -t tag -p yes
 #E.g:
-#./build.sh -n load-consumer -t 0.0.2 -p true -d true 
+#./build.sh -n load-fxconsumer -t 0.0.2 -p true -d true 
 #   build locally, no push to reg
 
 registry_name="605125156525.dkr.ecr.ap-southeast-1.amazonaws.com"
-repo_name="load-consumer"
+repo_name="load-fxconsumer"
 base_cmd="docker build --tag"
 
 function build_image_local () {

@@ -2,7 +2,9 @@
 
 FROM golang:1.16-alpine
 WORKDIR /app
-
+RUN apk update && \
+    apk upgrade
+RUN apk add openjdk8=8.302.08-r2
 COPY go.mod ./
 COPY go.sum ./
 
@@ -11,7 +13,7 @@ COPY *.go ./
 COPY use.py ./
 COPY sign384.py ./
 
-RUN go build -o /consumer
+RUN go build -o /fxconsumer
 RUN mkdir -p /data
 
-CMD /consumer
+CMD /fxconsumer
