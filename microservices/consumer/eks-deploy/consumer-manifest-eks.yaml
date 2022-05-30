@@ -7,12 +7,12 @@ spec:
   selector:
     matchLabels:
       app: consumer
-  replicas: 2
+  replicas: 200
   strategy:
     type: RollingUpdate
     rollingUpdate:
       maxSurge: 0
-      maxUnavailable: 75%
+      maxUnavailable: 85%
   template:
     metadata:
       labels:
@@ -22,11 +22,12 @@ spec:
 #        agentpool: np003
       containers:
       - name: consumer
-        image: archbungle/load-consumer:pulsar-0.0.41d13
+        #image: archbungle/load-consumer:pulsar-0.0.42d12
+        image: engeneon.jfrog.io/engeneon-docker/load-consumer:pulsar-0.0.42d12
         imagePullPolicy: IfNotPresent
         env:
         - name: API_BASE_URL
-          value: "trading-api.dexp-qa.com"
+          value: "trading-api.dexp-pt.com"
         - name: TRADING_API_PASSWORD
           value: "Eqonex@123456"
         - name: TRADING_API_USERNAME
@@ -35,8 +36,6 @@ spec:
           value: "test-1-traiano45"
         - name: BLOCKWAIT_ACK
           value: "1"
-        - name: TRADING_API_CLORID
-          value: "test-1-traiano45"
         - name: NUM_JOBS
           value: "1"
         - name: NUM_WORKERS
@@ -51,6 +50,14 @@ spec:
           value: "sub001"
         - name: MESSAGE_TOPIC
           value: "ragnarok/transactions/requests"
+        - name: REDIS_MASTER_ADDRESS
+          value: "ragnarok-redis-master.redis.svc.cluster.local:6379"
+        - name: REDIS_ALLOCATOR_NS_INDEX
+          value: "11"
+        - name: REDIS_REPLICA_ADDRESS
+          value: "ragnarok-redis-replicas.redis.svc.cluster.local:6379"
+        - name: REDIS_PASS
+          value: "Yj7Oe21iHz"
         - name: KAFKA_BROKER_SERVICE_ADDRESS
           value: "kafka-cp-kafka.kafka.svc.cluster.local:9092"
         - name: KAFKA_BROKER1_ADDRESS

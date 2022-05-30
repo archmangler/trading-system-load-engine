@@ -11,7 +11,11 @@
 #repo_name="load-consumer"
 #base_cmd="docker build --tag"
 
-registry_name="archbungle"
+#registry_name="archbungle"
+#repo_name="load-consumer"
+#base_cmd="docker build --tag"
+
+registry_name="engeneon.jfrog.io/engeneon-docker"
 repo_name="load-consumer"
 base_cmd="docker build --tag"
 

@@ -12,7 +12,7 @@ COPY go.sum ./
 
 COPY oauth2/ ./oauth2/
 COPY pulsar/ ./pulsar/
-RUN go mod download
+RUN go mod download && go get github.com/gomodule/redigo/redis
 COPY *.go ./
 COPY use.py ./
 COPY sign384.py ./
