@@ -7,18 +7,25 @@ COPY go.mod ./
 COPY go.sum ./
 RUN go mod download
 COPY *.go ./
+RUN mkdir -p ./credsloader
+COPY loadcreds/loadcreds.go ./credsloader/
 
 #Pulsar pre-requisites in apk
 RUN apk add gcc
 RUN apk add musl-dev
+RUN apk add bash
 
 RUN go build -o /loader
 
-RUN mkdir -p /datastore
-RUN mkdir -p /processed
-RUN mkdir -p /backups
+#build the credential bootstrap loader
+RUN go build ./credsloader/loadcreds.go
+
+#store user credential data for processing
+#and later removal
 RUN mkdir -p /applogs
-RUN mkdir -p /staging
+RUN mkdir -p /userdata
+COPY users /userdata
+COPY wrapper.sh ./
 
 #install kubectl for kube-ops
 RUN apk add curl
@@ -28,4 +35,4 @@ RUN mv ./kubectl /usr/local/bin/kubectl
 
 RUN ln -sf /dev/stdout /applogs/loader.log
 
-CMD /loader
+CMD /app/wrapper.sh

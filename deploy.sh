@@ -160,6 +160,21 @@ function deploy_producer_service () {
   cd $mycwd
 }
 
+function deploy_fix_consumer_service () {
+  mycwd=`pwd`
+  if [[ $target_cloud == *"azure"* ]]
+  then
+  cd microservices/fix-consumer/aks-deploy/
+  ./deploy.sh
+  fi
+  if [[ $target_cloud == *"aws"* ]]
+  then
+  cd microservices/fix-consumer/eks-deploy/
+  ./deploy.sh
+  fi
+  cd $mycwd
+}
+
 function deploy_consumer_service () {
   mycwd=`pwd`
   if [[ $target_cloud == *"azure"* ]]
@@ -244,6 +259,7 @@ deploy_pulsar_services
 #deploy_sink_service
 #deploy_producer_service
 #deploy_consumer_service
+#deploy_fix_consumer_service
 #deploy_loader_service
 #deploy_source_data_storage
 #deploy_data_ingestor
