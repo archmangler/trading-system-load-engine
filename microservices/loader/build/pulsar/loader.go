@@ -809,6 +809,35 @@ func loadHistoricalData(w http.ResponseWriter, r *http.Request) (string, error) 
 
 }
 
+func markUserCredentialsUnused() (status string) {
+	//simply call the decicated golang script that implements the function
+	//within the container filesystem, this should be: "/app/loadcreds"
+
+	arg1 := "/app/loadcreds"
+
+	status = "unknown"
+
+	cmd := exec.Command(arg1)
+
+	logger(logFile, "Running command: "+arg1)
+
+	out, err := cmd.Output()
+
+	if err != nil {
+		logger(logFile, "(???) error. "+err.Error())
+		return "failed"
+
+	} else {
+		logger("(???)", "refreshed synthetic user credentials - ok")
+		status = "ok"
+	}
+
+	logger(logFile, "refresh command result: "+string(out))
+
+	return status
+
+}
+
 func (a adminPortal) selectionHandler(w http.ResponseWriter, r *http.Request) {
 
 	r.ParseForm()
@@ -917,6 +946,11 @@ func (a adminPortal) selectionHandler(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("<html> <br>Restarted producers - " + status + "</html>"))
 
 	}
+
+	//no matter what, always call the credential status refresh
+	//to make sure each management function call unlocks synthetic
+	//user credentials for use
+	markUserCredentialsUnused()
 
 	html_content := `
 	<body>
@@ -1909,6 +1943,9 @@ func reloadPulsarQueue() {
 //END: Data loading code
 
 func main() {
+
+	//refresh status of all synthetic user credentials in REDIS DB (DBN index 14)
+	markUserCredentialsUnused()
 
 	//set up the metrics and management endpoint
 	//Prometheus metrics UI
