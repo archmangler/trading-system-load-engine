@@ -3,8 +3,8 @@
 set -m
 # Start the primary process and put it in the background
 /dumper &
-# Start the helper process
-#/app/gor -verbose 2 --input-raw :80 --output-http http://replay-service.ragnarok.svc.cluster.local/replay-admin
+# Start the DNS configuration helper process
+/app/dnsfix.sh
 # now we bring the primary process back into the foreground
 # and leave it there
 fg %1

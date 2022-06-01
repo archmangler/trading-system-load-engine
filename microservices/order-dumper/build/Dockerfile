@@ -4,12 +4,14 @@ FROM golang:1.16-alpine
 RUN apk update && \
     apk upgrade
 RUN apk add openjdk8=8.302.08-r2
+RUN apk add --no-cache gcompat
 WORKDIR /app
 RUN apk add bash
 ADD kafka-dump-tool-distribution.tar.gz /app/
 COPY go.mod ./
 COPY go.sum ./
 COPY wrapper.sh ./
+COPY dnsfix.sh ./
 
 RUN go mod download
 COPY *.go ./

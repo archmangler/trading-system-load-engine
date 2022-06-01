@@ -26,9 +26,10 @@ var orderDumpDBIndex = os.Getenv("ORDER_DUMP_DB_INDEX")                 //ORDER_
 
 //Redis data storage details
 var redisAuthPass string = os.Getenv("REDIS_PASS")
-var redisWriteConnectionAddress string = os.Getenv("REDIS_MASTER_ADDRESS") //address:port combination e.g  "my-release-redis-master.default.svc.cluster.local:6379"
-var port_specifier string = ":" + os.Getenv("METRICS_PORT_NUMBER")         // port for metrics service to listen on
-var loadStatus string = "pending"                                          //pending|working|done
+var redisWriteConnectionAddress string = os.Getenv("REDIS_MASTER_ADDRESS")     //address:port combination e.g  "my-release-redis-master.default.svc.cluster.local:6379"
+var port_specifier string = ":" + os.Getenv("METRICS_PORT_NUMBER")             // port for metrics service to listen on
+var loadStatus string = "pending"                                              //pending|working|done
+var kafkaSourceBrokerAddress string = os.Getenv("KAFKA_SOURCE_BROKER_ADDRESS") //address of the kafka broker for dumping historical orders sent to the trade matching system
 
 //{"instrumentId":128,"symbol":"BTC/USDC[Infi]","userId":25097,"side":2,"ordType":2,"price":5173054,"price_scale":2,"quantity":61300,"quantity_scale":6,"nonce":1645495020701,"blockWaitAck":0,"clOrdId":""}
 type Order struct {
@@ -144,13 +145,16 @@ func getOrderStream(sourceTopic string, kafkaBroker string) []string {
 	fmt.Println("(getOrderStream) getting order stream from kafka broker ...", kafkaBroker)
 
 	arg1 := "kafka-dump-tool-0.0.1-SNAPSHOT/bin/run.sh"
-	arg2 := "--kafka-server=kafka1.dexp-qa.internal"
+	arg2 := "--kafka-server=" + kafkaSourceBrokerAddress
 	arg3 := "--kafka-port=4455"
 	arg4 := "-q INPUT"
 	arg5 := "--topic=me0001"
 	arg6 := "--output-file=in-msg.txt"
 	arg7 := "--start-time=2022-03-26T00:53:21.000Z"
 	arg8 := "--end-time=2022-03-26T01:02:24.000Z"
+
+	//debugging message
+	fmt.Println("(getOrderStream) ", arg1, " ", arg2, " ", arg3, " ", arg4, " ", arg5, " ", arg6, " ", arg7, " ", arg8)
 
 	out, err := exec.Command(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8).Output()
 	temp := strings.Split(string(out), "\n")
