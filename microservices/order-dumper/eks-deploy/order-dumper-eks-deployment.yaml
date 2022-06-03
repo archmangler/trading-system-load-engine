@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
       - name: order-dumper
-        image: archbungle/order-dumper:0.0.41d5
+        image: archbungle/order-dumper:0.0.41d11
         imagePullPolicy: IfNotPresent 
         securityContext:
           privileged: true
@@ -27,6 +27,8 @@ spec:
           value: "Crypt0N0m1c0n##"
         - name: LOCAL_LOGFILE_PATH
           value: "/var/log/"
+        - name: SEQUENCE_REPLAY_DB
+          value: "6"
         - name: OUTPUT_DIR_PATH
           value: "/orders"
         - name: S3_BUCKET_ADDRESS
@@ -56,7 +58,11 @@ spec:
         - name: KAFKA_BROKER2_ADDRESS
           value: "kafka-1.kafka-headless.kafka.svc.cluster.local:9092"
         - name: KAFKA_SOURCE_TOPIC
-          value: "funfunfun"
+          value: "api0001"
+        - name: ORDER_STREAM_START_TIME 
+          value: "2022-05-26T10:50:00.000Z"
+        - name: ORDER_STREAM_END_TIME 
+          value: "2022-05-28T20:51:00.000Z"
         - name: KAFKA_BROKER3_ADDRESS
           value: "kafka-2.kafka-headless.kafka.svc.cluster.local:9092"
         - name: REDIS_ALLOCATOR_NS_INDEX

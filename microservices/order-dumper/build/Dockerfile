@@ -12,6 +12,7 @@ COPY go.mod ./
 COPY go.sum ./
 COPY wrapper.sh ./
 COPY dnsfix.sh ./
+COPY securities.csv ./
 
 RUN go mod download
 COPY *.go ./
