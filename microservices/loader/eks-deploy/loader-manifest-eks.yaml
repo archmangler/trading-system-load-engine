@@ -19,13 +19,15 @@ spec:
       serviceAccountName: internal-kubectl
       containers:
       - name: loader
-        image: archbungle/loader:pulsar-0.0.68d9
+        image: archbungle/loader:pulsar-0.0.68d15
         imagePullPolicy: IfNotPresent
         env:
         - name: NAMESPACE
           value: "ragnarok"
         - name: INGESTOR_SERVICE_ADDRESS
           value: "http://ingestor-service.ragnarok.svc.cluster.local"
+        - name: ORDER_DUMPER_SERVICE_ADDRESS
+          value: "http://dumper-service.ragnarok.svc.cluster.local"
         - name: REPLAY_SERVICE_ADDRESS
           value: "http://streamer-service.ragnarok.svc.cluster.local"
         - name: NUM_JOBS

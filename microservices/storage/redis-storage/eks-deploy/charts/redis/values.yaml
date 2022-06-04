@@ -91,7 +91,7 @@ image:
   pullSecrets: []
   ## Enable debug mode
   ##
-  debug: false
+  debug: true
 
 ## @section Redis&trade; common configuration parameters
 ## https://github.com/bitnami/bitnami-docker-redis#configuration
@@ -809,7 +809,7 @@ sentinel:
     pullSecrets: []
     ## Enable debug mode
     ##
-    debug: false
+    debug: true
   ## @param sentinel.masterSet Master set name
   ##
   masterSet: mymaster

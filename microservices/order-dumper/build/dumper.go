@@ -155,7 +155,7 @@ func jsonToMap(theString string) map[string]string {
 	return dMap
 }
 
-func getOrderStream(sourceTopic string, kafkaBroker string) []string {
+func getOrderStream(sourceTopic string, orderStreamStartTime string, orderStreamEndTime string, kafkaBroker string) []string {
 
 	//Dump orders from kafka using kafka tool into a local text file on the pod filesystem (with all the performance hit that implies ...)
 	//kafka-dump-tool-0.0.1-SNAPSHOT/bin/run.sh  --kafka-server=kafka1.dexp-qa.internal --kafka-port=4455 -q INPUT --topic=me0001 --output-file=in-msg.txt --start-time=2022-03-26T00:53:21.000Z --end-time=2022-03-26T01:02:24.000Z
@@ -186,7 +186,9 @@ func getOrderStream(sourceTopic string, kafkaBroker string) []string {
 
 	} else {
 
-		fmt.Println("Done dumping orders ...", out)
+		fmt.Println("Done dumping orders. Data length: ", len(out))
+
+		loadStatus = "working"
 
 	}
 	//fill this with results
@@ -195,20 +197,32 @@ func getOrderStream(sourceTopic string, kafkaBroker string) []string {
 }
 
 func readLines(path string) ([]string, error) {
+
 	// readLines reads a whole file into memory
 	// and returns a slice of its lines.
 
+	fmt.Println("(readLines) opening source dump file", path)
+
 	file, err := os.Open(path)
+
 	if err != nil {
+		fmt.Println("(readLines) ERROR! opening source dump file", err)
+
 		return nil, err
 	}
+
 	defer file.Close()
 
 	var lines []string
+
 	scanner := bufio.NewScanner(file)
+
 	for scanner.Scan() {
 		lines = append(lines, scanner.Text())
 	}
+
+	fmt.Println("(readLines) read lines from order dump file: ", len(lines))
+
 	return lines, scanner.Err()
 }
 
@@ -407,24 +421,25 @@ func processHistoricalOrderStream() {
 
 }
 
-func loadHistoricalData(sourceTopic string, w http.ResponseWriter, r *http.Request) (string, error) {
+func loadHistoricalData(sourceTopic string, oStreamStartTime string, oStreamEndTime string, w http.ResponseWriter, r *http.Request) (string, error) {
 
 	status := "ok"
 	loadStatus = "started"
 	var err error
 
+	//debug help
+	fmt.Println("(loadHistoricalData) order stream start time =", oStreamStartTime, " order stream end time = ", oStreamEndTime)
+
 	w.Write([]byte("<br><html>Using data in " + sourceTopic + " for new load test: " + "</html>"))
-	logger("loadHistoricalData", "Using data in "+sourceTopic+" for new load test")
+	logger("(loadHistoricalData)", "Using data in "+sourceTopic+" for new load test")
 
-	//get available files from source bucket
-	getOrderStream(sourceTopic, kafkaBroker) //stream messages out from Kafka broker endpoint
-
-	/*
-		DO  stuff here to process the retrieved order stream
-	*/
+	//get available files from source topic
+	getOrderStream(sourceTopic, oStreamStartTime, oStreamEndTime, kafkaBroker) //stream messages out from Kafka broker endpoint
 
 	//Default: process historical order data from kafka
 	processHistoricalOrderStream()
+
+	loadStatus = "done"
 
 	//report done
 	return status, err
@@ -435,12 +450,12 @@ func (a adminPortal) selectionHandler(w http.ResponseWriter, r *http.Request) {
 
 	r.ParseForm()
 
-	/* //Can debug as follows:
+	//Can debug as follows:
+
 	for k, v := range r.Form {
-		fmt.Println("key:", k)
-		fmt.Println("val:", strings.Join(v, ""))
+		fmt.Println("(selectionHandler) received url parameter key:", k)
+		fmt.Println("(selectionHandler) received url parameter val:", strings.Join(v, ""))
 	}
-	*/
 
 	selection := make(map[string]string)
 	params := r.URL.RawQuery
@@ -448,8 +463,24 @@ func (a adminPortal) selectionHandler(w http.ResponseWriter, r *http.Request) {
 	parts := strings.Split(params, "=")
 	selection[parts[0]] = parts[1]
 
+	partsString := strings.Join(parts, " ")
+	fmt.Println("(selectionHandler) parameter list: ", partsString)
+
+	//mangling out the parameters
+	parameterParts := strings.Split(partsString, "?")
+	startParams := parameterParts[0]
+
+	fmt.Println("(selectionHandler) parameterParts[0]: ", startParams)
+	stopParams := parameterParts[1]
+
+	fmt.Println("(selectionHandler) parameterParts[1]: ", stopParams)
+	start_of_sequence := strings.Split(startParams, " ")[1]
+	end_of_sequence := strings.Split(stopParams, " ")[1]
+
+	fmt.Println("(selectionHandler) start, stop params: ", start_of_sequence, end_of_sequence)
+
 	if selection[parts[0]] == "backupProcessedData" {
-		fmt.Println("running backups")
+		fmt.Println("(selectionHandler) backing up used data")
 		status, err := backupProcessedData(w, r)
 
 		if err != nil {
@@ -460,7 +491,10 @@ func (a adminPortal) selectionHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if selection[parts[0]] == "LoadHistoricalData" {
-		status, err := loadHistoricalData(sourceTopic, w, r)
+
+		fmt.Println("(selectionHandler) loading historical data")
+
+		status, err := loadHistoricalData(sourceTopic, start_of_sequence, end_of_sequence, w, r)
 
 		if err != nil {
 			w.Write([]byte("<html> Woops! ... " + err.Error() + "</html>"))
@@ -483,21 +517,41 @@ func (a adminPortal) selectionHandler(w http.ResponseWriter, r *http.Request) {
 
 func (a adminPortal) initialiseHandler(w http.ResponseWriter, r *http.Request) {
 
-	//Basic API Auth Example
-	//Disabled for Testing
+	r.ParseForm()
 
-	/*user, pass, ok := r.BasicAuth()
-	if !ok || user != "admin" || pass != a.password {
-		w.WriteHeader(http.StatusUnauthorized)
-		w.Write([]byte("401 - unauthorized"))
-		return
+	//Can debug as follows:
+
+	for k, v := range r.Form {
+		fmt.Println("(initialiseHandler) received url parameter key:", k)
+		fmt.Println("(initialiseHandler) received url parameter val:", strings.Join(v, ""))
 	}
-	*/
+
+	selection := make(map[string]string)
+	params := r.URL.RawQuery
+
+	parts := strings.Split(params, "=")
+	selection[parts[0]] = parts[1]
+
+	partsString := strings.Join(parts, " ")
+	fmt.Println("(initialiseHandler) parameter list: ", partsString)
+
+	//mangling out the parameters
+	parameterParts := strings.Split(partsString, "?")
+	startParams := parameterParts[0]
+
+	fmt.Println("(initialiseHandler) parameterParts[0]: ", startParams)
+	stopParams := parameterParts[1]
+
+	fmt.Println("(initialiseHandler) parameterParts[1]: ", stopParams)
+	oStreamStartTime := strings.Split(startParams, " ")[1]
+	oStreamEndTime := strings.Split(stopParams, " ")[1]
+
+	fmt.Println("(initialiseHandler) start, stop params: ", oStreamStartTime, oStreamEndTime)
 
 	//don't block on this (the user can poll the status url for updates ...)
 	go func() {
 
-		status, err := loadHistoricalData(sourceTopic, w, r)
+		status, err := loadHistoricalData(sourceTopic, oStreamStartTime, oStreamEndTime, w, r)
 
 		if err != nil {
 			w.Write([]byte(err.Error()))

@@ -26,6 +26,13 @@ spec:
             name: dumper-service
             port:
               number: 80
+      - path: /dumper-start
+        pathType: Prefix
+        backend:
+          service:
+            name: dumper-service
+            port:
+              number: 80
       - path: /dumperselected
         pathType: Prefix
         backend:

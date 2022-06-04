@@ -23,12 +23,13 @@ import (
 )
 
 //get running parameters from container environment
-var namespace = "ragnarok"                                                 //os.Getenv("POD_NAMESPACE")
-var grafana_dashboard_url = os.Getenv("GRAFANA_DASHBOARD_URL")             // e.g http://192.168.1.4:32000/d/AtqYwRA7k/transaction-matching-system-load-metrics?orgId=1&refresh=10s
-var numJobs, _ = strconv.Atoi(os.Getenv("NUM_JOBS"))                       //20
-var numWorkers, _ = strconv.Atoi(os.Getenv("NUM_WORKERS"))                 //20
-var ingestionServiceAddress string = os.Getenv("INGESTOR_SERVICE_ADDRESS") //ingestor-service.ragnarok.svc.cluster.local
-var replayServiceAddress string = os.Getenv("REPLAY_SERVICE_ADDRESS")      //
+var namespace = "ragnarok"                                                       //os.Getenv("POD_NAMESPACE")
+var grafana_dashboard_url = os.Getenv("GRAFANA_DASHBOARD_URL")                   // e.g http://192.168.1.4:32000/d/AtqYwRA7k/transaction-matching-system-load-metrics?orgId=1&refresh=10s
+var numJobs, _ = strconv.Atoi(os.Getenv("NUM_JOBS"))                             //20
+var numWorkers, _ = strconv.Atoi(os.Getenv("NUM_WORKERS"))                       //20
+var ingestionServiceAddress string = os.Getenv("INGESTOR_SERVICE_ADDRESS")       //ingestor-service.ragnarok.svc.cluster.local
+var replayServiceAddress string = os.Getenv("REPLAY_SERVICE_ADDRESS")            //
+var orderDumperServiceAddress string = os.Getenv("ORDER_DUMPER_SERVICE_ADDRESS") //for the service that dumps the last week's order from kafkap topic api0001
 
 //pulsar connection details
 var brokerServiceAddress = os.Getenv("PULSAR_BROKER_SERVICE_ADDRESS") // e.g "pulsar://pulsar-mini-broker.pulsar.svc.cluster.local:6650"
@@ -819,20 +820,20 @@ func markUserCredentialsUnused() (status string) {
 
 	cmd := exec.Command(arg1)
 
-	logger(logFile, "Running command: "+arg1)
+	logger("(markUserCredentialsUnused)", "Running command: "+arg1)
 
 	out, err := cmd.Output()
 
 	if err != nil {
-		logger(logFile, "(???) error. "+err.Error())
+		logger(logFile, "(markUserCredentialsUnused) error. "+err.Error())
 		return "failed"
 
 	} else {
-		logger("(???)", "refreshed synthetic user credentials - ok")
+		logger("(markUserCredentialsUnused)", "refreshed synthetic user credentials - ok")
 		status = "ok"
 	}
 
-	logger(logFile, "refresh command result: "+string(out))
+	logger("(markUserCredentialsUnused)", "refresh command result: "+string(out))
 
 	return status
 
@@ -1942,10 +1943,127 @@ func reloadPulsarQueue() {
 
 //END: Data loading code
 
+func bootStrapOrderData(sequenceReplayDBindex int) {
+
+	//load the last 6 days of orders data from the kafka `api0001` topic
+	//in preparation for any new load test (sequential order replay)
+	//this is stored in REDIS DB 6
+
+	fmt.Println("(bootStrapOrderData) done loading order data from kafka topic (api0001)...")
+
+	//find current time, time 168 hours ago in ISO format
+	msgStartTime, msgStopTime := getOrderInterval()
+
+	//[x] 1. Trigger the loader service via the API (kubectl delete <pod-name>)
+	// GET /load-start
+	//http.Get(replayServiceAddress + "/streamer-start?start=" + strconv.Itoa(msgStartSeq) + "?stop=" + strconv.Itoa(msgStopSeq))
+	resp, err := http.Get(orderDumperServiceAddress + "/dumper-start?start=" + msgStartTime + "?stop=" + msgStopTime)
+
+	//debug help
+	fmt.Println("(bootStrapOrderData) GET: ", orderDumperServiceAddress+"/dumper-start?start="+msgStartTime+"?stop="+msgStopTime)
+	fmt.Println("(bootStrapOrderData) streaming orders from " + msgStartTime + " to " + msgStopTime)
+
+	if err != nil {
+		log.Fatalln(err)
+	}
+
+	body, err := ioutil.ReadAll(resp.Body)
+
+	if err != nil {
+		fmt.Println("(bootStrapOrderData) error reading ingest status endpoint: ", err)
+	}
+
+	status := string(body)
+
+	fmt.Println("(bootStrapOrderData) triggered order dump start: ", status)
+
+	//	[x] 2. Wait until it's status "ok" (until /ingest-status/ is not `pending`)
+	//	  [x] 2.1. Poll the status endpoint ("API": curl /load-status/) pending|started|completed
+
+	for {
+
+		resp, err = http.Get(orderDumperServiceAddress + "/dumper-status")
+
+		if err != nil {
+			fmt.Println("(bootStrapOrderData) error getting order dumper status endpoint: ", err)
+		}
+
+		body, err = ioutil.ReadAll(resp.Body)
+
+		if err != nil {
+			fmt.Println("(bootStrapOrderData) error reading order dumper status response body: ", err)
+			break
+		}
+
+		status = string(body)
+
+		fmt.Println("(bootStrapOrderData) Getting order dumper service status: ", status)
+
+		if status == "done" {
+			fmt.Println("(bootStrapOrderData) finished order dumper input data: ", status)
+			break
+		} else {
+			fmt.Println("(bootStrapOrderData) downloading order data from kafka: ", status)
+		}
+
+		time.Sleep(5 * time.Second)
+	}
+
+}
+
+func getOrderInterval() (string, string) {
+
+	//get start time and end time of order query from kafka (7 days duration)
+
+	/*
+		1. get current time
+		2. delete 7 days from it
+		3. print the start time (past)
+		4. print the start time (current time)
+		Expected time format conversions:
+			st := "2022-05-26T10:50:00.000Z"
+			et := "2022-05-28T20:51:00.000Z"
+	*/
+
+	timeStart := time.Now() //.Format(time.RFC3339)
+	rfcTimeStart := timeStart.Format(time.RFC3339)
+
+	//Travel 7 days back in time (168 hours)
+	rfcTimeEnd := timeStart.Add(-time.Hour * 168).Format(time.RFC3339) //168  hours = 7 days into the past ...
+
+	t1, e1 := time.Parse(
+		time.RFC3339,
+		rfcTimeStart)
+
+	if e1 != nil {
+		fmt.Println(e1)
+	}
+
+	t2, e2 := time.Parse(
+		time.RFC3339,
+		rfcTimeEnd)
+
+	if e2 != nil {
+		fmt.Println(e2)
+	}
+
+	//Convert from RFC3339 formatted time to ISO8601
+	rfcTimeStart = t1.Format("2006-01-02T15:04:05.000Z")
+	rfcTimeEnd = t2.Format("2006-01-02T15:04:05.000Z")
+
+	return rfcTimeStart, rfcTimeEnd
+
+}
+
 func main() {
 
 	//refresh status of all synthetic user credentials in REDIS DB (DBN index 14)
 	markUserCredentialsUnused()
+
+	//load the last 6 days of orders data from the kafka `api0001` topic
+	//in preparation for any new load test (sequential order replay)
+	//this is stored in REDIS DB 6
+	bootStrapOrderData(sequenceReplayDBindex)
 
 	//set up the metrics and management endpoint
 	//Prometheus metrics UI
