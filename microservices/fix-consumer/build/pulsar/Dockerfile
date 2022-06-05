@@ -20,6 +20,7 @@ COPY *.go ./
 COPY use.py ./
 COPY sign384.py ./
 
+RUN go get github.com/gomodule/redigo/redis
 RUN go build -o /fxconsumer
 
 RUN mkdir -p /data

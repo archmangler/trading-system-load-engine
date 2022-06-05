@@ -22,7 +22,7 @@ spec:
 #        agentpool: np003
       containers:
       - name: fxconsumer
-        image: archbungle/load-fxconsumer:pulsar-0.0.1d3
+        image: archbungle/load-fxconsumer:pulsar-0.0.2
         imagePullPolicy: IfNotPresent
         env:
         - name: API_BASE_URL
@@ -35,8 +35,6 @@ spec:
           value: "test-1-traiano45"
         - name: BLOCKWAIT_ACK
           value: "1"
-        - name: TRADING_API_CLORID
-          value: "test-1-traiano45"
         - name: NUM_JOBS
           value: "1"
         - name: NUM_WORKERS
@@ -67,6 +65,14 @@ spec:
           value: "http://sink-service.ragnarok.svc.cluster.local/sink-orders"
         - name: PORT_NUMBER
           value: "80"
+        - name: REDIS_MASTER_ADDRESS
+          value: "ragnarok-redis-master.redis.svc.cluster.local:6379"
+        - name: REDIS_ALLOCATOR_NS_INDEX
+          value: "11"
+        - name: REDIS_REPLICA_ADDRESS
+          value: "ragnarok-redis-replicas.redis.svc.cluster.local:6379"
+        - name: REDIS_PASS
+          value: "Yj7Oe21iHz"
         ports:
           - name: tcp-80
             containerPort: 80
