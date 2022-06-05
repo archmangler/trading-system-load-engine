@@ -30,6 +30,7 @@ var numWorkers, _ = strconv.Atoi(os.Getenv("NUM_WORKERS"))                      
 var ingestionServiceAddress string = os.Getenv("INGESTOR_SERVICE_ADDRESS")       //ingestor-service.ragnarok.svc.cluster.local
 var replayServiceAddress string = os.Getenv("REPLAY_SERVICE_ADDRESS")            //
 var orderDumperServiceAddress string = os.Getenv("ORDER_DUMPER_SERVICE_ADDRESS") //for the service that dumps the last week's order from kafkap topic api0001
+var dumpTimeInterval, _ = strconv.Atoi(os.Getenv("ORDER_DUMP_TIME_INTERVAL"))    //hours into the past to dump orders in kafka from
 
 //pulsar connection details
 var brokerServiceAddress = os.Getenv("PULSAR_BROKER_SERVICE_ADDRESS") // e.g "pulsar://pulsar-mini-broker.pulsar.svc.cluster.local:6650"
@@ -897,27 +898,31 @@ func (a adminPortal) selectionHandler(w http.ResponseWriter, r *http.Request) {
 
 		fmt.Println("(selectionHandler) got parameter strings: ", start_of_sequence, end_of_sequence)
 
-		SoS, err := strconv.Atoi(start_of_sequence)
+		bootStrapOrderData(sequenceReplayDBindex, start_of_sequence, end_of_sequence)
 
-		if err != nil {
-			fmt.Println("unable to convert string start_of_sequence to int64", start_of_sequence)
-		} else {
-			fmt.Println("(selectionHandler) typeconv: ", start_of_sequence, SoS)
-		}
+		/*
+			SoS, err := strconv.Atoi(start_of_sequence)
 
-		EoS, err := strconv.Atoi(end_of_sequence)
+			if err != nil {
+				fmt.Println("unable to convert string start_of_sequence to int64", start_of_sequence)
+			} else {
+				fmt.Println("(selectionHandler) typeconv: ", start_of_sequence, SoS)
+			}
 
-		if err != nil {
-			fmt.Println("unable to convert string end_of_sequence to int64")
-		} else {
-			fmt.Println("typeconv: ", end_of_sequence, EoS)
-		}
+			EoS, err := strconv.Atoi(end_of_sequence)
+
+			if err != nil {
+				fmt.Println("unable to convert string end_of_sequence to int64")
+			} else {
+				fmt.Println("typeconv: ", end_of_sequence, EoS)
+			}
+		*/
 
 		//modified to use pulsar
-		dataCount, error := dump_pulsar_messages_to_input(SoS, EoS)
+		//dataCount, error := dump_pulsar_messages_to_input(SoS, EoS)
 
-		w.Write([]byte("<html> <br>Load status: " + dataCount + " requests in range from topic. With error: " + error.Error() + "</html>"))
-		w.Write([]byte("<html> <br>Initiating run with new request load data ...</html>"))
+		//w.Write([]byte("<html> <br>Load status: " + dataCount + " requests in range from topic. With error: " + error.Error() + "</html>"))
+		//w.Write([]byte("<html> <br>Initiating run with new request load data ...</html>"))
 		//user can now restart the producers and consumer
 
 	}
@@ -995,8 +1000,8 @@ func (a adminPortal) handler(w http.ResponseWriter, r *http.Request) {
 
   <form action="/selected?param=LoadRequestSequence" method="post"">
   <input type="submit" name="LoadRequestSequence" value="load request sequence" style="padding:20px;" style="font-family:verdana;"> 
-  <html style="font-family:verdana;">Start of sequence:</html><input type="text" name="start" >
-  <html style="font-family:verdana;">End of Sequence:</html><input type="text" name="stop" >
+  <html style="font-family:verdana;">Start time of sequence (format: 2022-06-04T15:49:43.000Z):</html><input type="text" name="start" >
+  <html style="font-family:verdana;">End time of Sequence (format: 2022-06-04T15:49:43.000Z):</html><input type="text" name="stop" >
   </form>
 
   <form action="/selected?param=backupProcessedData" method="post">
@@ -1943,16 +1948,21 @@ func reloadPulsarQueue() {
 
 //END: Data loading code
 
-func bootStrapOrderData(sequenceReplayDBindex int) {
+func bootStrapOrderDataWrapper(sequenceReplayDBindex int) {
+
+	//find current time, time 168 hours ago in ISO format
+	msgStartTime, msgStopTime := getOrderInterval(dumpTimeInterval)
+
+	bootStrapOrderData(sequenceReplayDBindex, msgStartTime, msgStopTime)
+}
+
+func bootStrapOrderData(sequenceReplayDBindex int, msgStartTime string, msgStopTime string) {
 
 	//load the last 6 days of orders data from the kafka `api0001` topic
 	//in preparation for any new load test (sequential order replay)
 	//this is stored in REDIS DB 6
 
 	fmt.Println("(bootStrapOrderData) done loading order data from kafka topic (api0001)...")
-
-	//find current time, time 168 hours ago in ISO format
-	msgStartTime, msgStopTime := getOrderInterval()
 
 	//[x] 1. Trigger the loader service via the API (kubectl delete <pod-name>)
 	// GET /load-start
@@ -2011,7 +2021,7 @@ func bootStrapOrderData(sequenceReplayDBindex int) {
 
 }
 
-func getOrderInterval() (string, string) {
+func getOrderInterval(dumpTimeInterval int) (string, string) {
 
 	//get start time and end time of order query from kafka (7 days duration)
 
@@ -2029,7 +2039,7 @@ func getOrderInterval() (string, string) {
 	rfcTimeStart := timeStart.Format(time.RFC3339)
 
 	//Travel 7 days back in time (168 hours)
-	rfcTimeEnd := timeStart.Add(-time.Hour * 168).Format(time.RFC3339) //168  hours = 7 days into the past ...
+	rfcTimeEnd := timeStart.Add(-time.Hour * time.Duration(dumpTimeInterval)).Format(time.RFC3339) //168  hours = 7 days into the past ...
 
 	t1, e1 := time.Parse(
 		time.RFC3339,
@@ -2063,7 +2073,10 @@ func main() {
 	//load the last 6 days of orders data from the kafka `api0001` topic
 	//in preparation for any new load test (sequential order replay)
 	//this is stored in REDIS DB 6
-	bootStrapOrderData(sequenceReplayDBindex)
+	//DON'T BLOCK!
+	go func() {
+		bootStrapOrderDataWrapper(sequenceReplayDBindex)
+	}()
 
 	//set up the metrics and management endpoint
 	//Prometheus metrics UI

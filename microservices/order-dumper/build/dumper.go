@@ -537,12 +537,13 @@ func (a adminPortal) initialiseHandler(w http.ResponseWriter, r *http.Request) {
 
 	//mangling out the parameters
 	parameterParts := strings.Split(partsString, "?")
-	startParams := parameterParts[0]
 
-	fmt.Println("(initialiseHandler) parameterParts[0]: ", startParams)
-	stopParams := parameterParts[1]
+	stopParams := parameterParts[0]
+	fmt.Println("(initialiseHandler) parameterParts[0]: ", stopParams)
 
-	fmt.Println("(initialiseHandler) parameterParts[1]: ", stopParams)
+	startParams := parameterParts[1]
+	fmt.Println("(initialiseHandler) parameterParts[1]: ", startParams)
+
 	oStreamStartTime := strings.Split(startParams, " ")[1]
 	oStreamEndTime := strings.Split(stopParams, " ")[1]
 
