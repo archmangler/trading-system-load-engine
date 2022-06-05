@@ -311,7 +311,7 @@ func read_input_sources_redis() (inputs []string) {
 
 	defer conn.Close()
 
-	conn.Do("SELECT", 14)
+	conn.Do("SELECT", 6)
 
 	//GET ALL VALUES FROM DISCOVERED KEYS ONLY
 	data, err := redis.Strings(conn.Do("KEYS", "*"))

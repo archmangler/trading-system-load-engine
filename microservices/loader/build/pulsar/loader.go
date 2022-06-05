@@ -900,31 +900,6 @@ func (a adminPortal) selectionHandler(w http.ResponseWriter, r *http.Request) {
 
 		bootStrapOrderData(sequenceReplayDBindex, start_of_sequence, end_of_sequence)
 
-		/*
-			SoS, err := strconv.Atoi(start_of_sequence)
-
-			if err != nil {
-				fmt.Println("unable to convert string start_of_sequence to int64", start_of_sequence)
-			} else {
-				fmt.Println("(selectionHandler) typeconv: ", start_of_sequence, SoS)
-			}
-
-			EoS, err := strconv.Atoi(end_of_sequence)
-
-			if err != nil {
-				fmt.Println("unable to convert string end_of_sequence to int64")
-			} else {
-				fmt.Println("typeconv: ", end_of_sequence, EoS)
-			}
-		*/
-
-		//modified to use pulsar
-		//dataCount, error := dump_pulsar_messages_to_input(SoS, EoS)
-
-		//w.Write([]byte("<html> <br>Load status: " + dataCount + " requests in range from topic. With error: " + error.Error() + "</html>"))
-		//w.Write([]byte("<html> <br>Initiating run with new request load data ...</html>"))
-		//user can now restart the producers and consumer
-
 	}
 
 	if selection[parts[0]] == "LoadHistoricalData" {

@@ -419,6 +419,8 @@ func processHistoricalOrderStream() {
 		}
 	}
 
+	//just in case ...
+	loadStatus = "done"
 }
 
 func loadHistoricalData(sourceTopic string, oStreamStartTime string, oStreamEndTime string, w http.ResponseWriter, r *http.Request) (string, error) {
