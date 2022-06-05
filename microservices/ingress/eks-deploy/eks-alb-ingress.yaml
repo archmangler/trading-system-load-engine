@@ -12,6 +12,34 @@ spec:
   rules:
   - http:
       paths:
+      - path: /dumper-status
+        pathType: Prefix
+        backend:
+          service:
+            name: dumper-service
+            port:
+              number: 80
+      - path: /dumper-admin
+        pathType: Prefix
+        backend:
+          service:
+            name: dumper-service
+            port:
+              number: 80
+      - path: /dumper-start
+        pathType: Prefix
+        backend:
+          service:
+            name: dumper-service
+            port:
+              number: 80
+      - path: /dumperselected
+        pathType: Prefix
+        backend:
+          service:
+            name: dumper-service
+            port:
+              number: 80
       - path: /sink-admin
         pathType: Prefix
         backend:
@@ -24,6 +52,20 @@ spec:
         backend:
           service:
             name: sink-service
+            port:
+              number: 80
+      - path: /replay-admin
+        pathType: Prefix
+        backend:
+          service:
+            name: replay-service
+            port:
+              number: 80
+      - path: /replay-orders
+        pathType: Prefix
+        backend:
+          service:
+            name: replay-service
             port:
               number: 80
       - path: /ingest-status

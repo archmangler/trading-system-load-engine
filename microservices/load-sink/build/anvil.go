@@ -121,12 +121,16 @@ func logger(logFile string, logMessage string) {
 }
 
 func (h *orderHandlers) orders(w http.ResponseWriter, r *http.Request) {
+
+	logger(logFile, "(orders handler) processing incoming order request ...")
+
 	switch r.Method {
 	case "GET":
 		h.get(w, r)
 		return
 	case "POST":
 		h.publish(w, r)
+		logger(logFile, "(orders handler) creating an order ...")
 		return
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)
@@ -312,21 +316,45 @@ func (h *orderHandlers) publish(w http.ResponseWriter, r *http.Request) {
 
 }
 
-func idAllocator(taskMap map[int][]string, numWorkers int) (m map[string][]string) {
+func newOrderHandlers() *orderHandlers {
+	return &orderHandlers{
+		store: map[string]Order{},
+	}
+}
 
-	tMap := make(map[string][]string)
+type adminPortal struct {
+	password string
+}
 
-	element := 0
+func newAdminPortal() *adminPortal {
 
-	for i := 1; i <= numWorkers; i++ {
+	password := os.Getenv("ADMIN_PASSWORD")
 
-		taskID := strconv.Itoa(i)
-		tMap[taskID] = taskMap[element]
-		element++
-
+	if password == "" {
+		panic("required env var ADMIN_PASSWORD not set")
 	}
 
-	return tMap
+	return &adminPortal{password: password}
+}
+
+func (a adminPortal) handler(w http.ResponseWriter, r *http.Request) {
+
+	//Basic API Auth Example
+	//Disabled for Testing
+	/*user, pass, ok := r.BasicAuth()
+	if !ok || user != "admin" || pass != a.password {
+		w.WriteHeader(http.StatusUnauthorized)
+		w.Write([]byte("401 - unauthorized"))
+		return
+	}
+	*/
+
+	logger(logFile, "(newAdminPortal handler) entering admin portal ...")
+
+	w.Write([]byte("<html><h1>Anvil Management Portal</h1></html>"))
+	w.Write([]byte("<html> Successful requests: " + strconv.Itoa(orderCount) + "</html>"))
+	w.Write([]byte("<html> Failed requests: " + strconv.Itoa(errorCount) + "</html>"))
+
 }
 
 func main() {

@@ -91,7 +91,7 @@ image:
   pullSecrets: []
   ## Enable debug mode
   ##
-  debug: false
+  debug: true
 
 ## @section Redis&trade; common configuration parameters
 ## https://github.com/bitnami/bitnami-docker-redis#configuration
@@ -150,7 +150,6 @@ master:
   ## ref: https://redis.io/topics/security#disabling-of-specific-commands
   ##
   disableCommands:
-    - FLUSHDB
     - FLUSHALL
   ## @param master.command Override default container command (useful when using custom images)
   ##
@@ -809,7 +808,7 @@ sentinel:
     pullSecrets: []
     ## Enable debug mode
     ##
-    debug: false
+    debug: true
   ## @param sentinel.masterSet Master set name
   ##
   masterSet: mymaster

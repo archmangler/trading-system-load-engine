@@ -160,6 +160,21 @@ function deploy_producer_service () {
   cd $mycwd
 }
 
+function deploy_fix_consumer_service () {
+  mycwd=`pwd`
+  if [[ $target_cloud == *"azure"* ]]
+  then
+  cd microservices/fix-consumer/aks-deploy/
+  ./deploy.sh
+  fi
+  if [[ $target_cloud == *"aws"* ]]
+  then
+  cd microservices/fix-consumer/eks-deploy/
+  ./deploy.sh
+  fi
+  cd $mycwd
+}
+
 function deploy_consumer_service () {
   mycwd=`pwd`
   if [[ $target_cloud == *"azure"* ]]
@@ -226,25 +241,27 @@ function deploy_data_ingestor () {
   cd $mycwd
 }
 
-#microservices/ingestor/eks-deploy
-
-
-#Deployment to Azure Cloud
-deploy_kubernetes_cluster
+#Deployment to Azure or  AWS Cloud
+#deploy_kubernetes_cluster
 create_namespaces
 deploy_ingress_controller
 deploy_ingress_service
 deploy_prometheus_services
 deploy_grafana_services
 deploy_redis_services
-#make this selectable at some point!
-#deploy_kafka_services
+##make this selectable at some point!
+##deploy_kafka_services
 deploy_pulsar_services
-deploy_local_storage
-update_registry_access
-deploy_sink_service
-deploy_producer_service
-deploy_consumer_service
-deploy_loader_service
-deploy_source_data_storage
-deploy_data_ingestor
+
+#Microservices for Load Testing Engine
+##deploy_local_storage
+#update_registry_access
+#deploy_sink_service
+#deploy_producer_service
+#deploy_consumer_service
+#deploy_fix_consumer_service
+#deploy_loader_service
+#deploy_source_data_storage
+#deploy_data_ingestor
+#deploy_replay_service
+

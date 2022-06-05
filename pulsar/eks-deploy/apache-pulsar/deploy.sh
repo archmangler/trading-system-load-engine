@@ -1,5 +1,7 @@
 #!/bin/bash
 #A simple wrapper script for deploying pulsar on kubernetes
+set -x
+
 namespace="pulsar"
 pulsar_release="2.9.2"
 

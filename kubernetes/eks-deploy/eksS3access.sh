@@ -1,5 +1,5 @@
 #!/bin/bash
-CLUSTER_NAME="ragnarok-eks-mjollner-poc"
+CLUSTER_NAME="${AWS_CLUSTER_NAME}"
 for STACK_NAME in $(eksctl get nodegroup --cluster $CLUSTER_NAME -o json | jq -r '.[].StackName')
 do
   ROLE_NAME=$(aws cloudformation describe-stack-resources --stack-name $STACK_NAME | jq -r '.StackResources[] | select(.ResourceType=="AWS::IAM::Role") | .PhysicalResourceId')

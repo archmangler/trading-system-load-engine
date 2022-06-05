@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
       - name: load-sink
-        image: archbungle/load-sink:0.0.20
+        image: archbungle/load-sink:0.0.27
         imagePullPolicy: IfNotPresent 
         securityContext:
           privileged: true
@@ -26,7 +26,7 @@ spec:
         - name: ADMIN_PASSWORD
           value: "Crypt0N0m1c0n##"
         - name: LOCAL_LOGFILE_PATH
-          value: "/var/log"
+          value: "/var/log/"
         - name: OUTPUT_DIR_PATH
           value: "/processed"
         ports:
