@@ -40,7 +40,7 @@ var hostname string = os.Getenv("HOSTNAME")                                 // "
 
 //Redis configuration for better storage performance ...
 var dbIndex int = 11 // Separate namespace for management data. integer index > 0  e.g 11 (default 11)
-var dataDbIndex int = 0
+var dataDbIndex, _ = strconv.Atoi(os.Getenv("SEQUENCE_REPLAY_DB"))
 
 var redisWriteConnectionAddress string = os.Getenv("REDIS_MASTER_ADDRESS") //address:port combination e.g  "my-release-redis-master.default.svc.cluster.local:6379"
 var redisReadConnectionAddress string = os.Getenv("REDIS_REPLICA_ADDRESS") //address:port combination e.g  "my-release-redis-replicas.default.svc.cluster.local:6379"
@@ -280,10 +280,10 @@ func readFromRedis(input_id string, conn redis.Conn) (ds string, err error) {
 	//select correct DB
 
 	if debug == 1 {
-		fmt.Println("select redis db: ", 0)
+		fmt.Println("select redis db: ", dataDbIndex)
 	}
 
-	conn.Do("SELECT", 0)
+	conn.Do("SELECT", dataDbIndex)
 
 	InstrumentId, err := redis.String(conn.Do("HGET", input_id, "instrumentId"))
 
@@ -462,7 +462,7 @@ func process_input_data_redis_concurrent(workerId int, jobId int) {
 	defer conn.Close()
 
 	//select correct DB
-	conn.Do("SELECT", 0)
+	conn.Do("SELECT", dataDbIndex)
 
 	for fIndex := range tmpFileList {
 
@@ -606,7 +606,7 @@ func process_input_data_redis(workerId int) {
 	defer conn.Close()
 
 	//select correct DB
-	conn.Do("SELECT", 0)
+	conn.Do("SELECT", dataDbIndex)
 
 	for fIndex := range tmpFileList {
 

@@ -238,6 +238,17 @@ func generate_input_sources(startSequence int, endSequence int) (inputs []string
 
 func update_management_data_redis(dataIndex string, input_data []string, conn redis.Conn, workCount int) (count int) {
 
+	fmt.Println("(update_management_data_redis) inserting data length: ", len(input_data))
+
+	//switch to correct DB
+	response, err := conn.Do("SELECT", dbIndex)
+	if err != nil {
+		fmt.Println("(update_work_allocation_table) can't connect to redis namespace: ", dbIndex)
+		panic(err)
+	} else {
+		fmt.Println("(update_work_allocation_table) redis select namespace response: ", response)
+	}
+
 	//build the message body inputs for json
 	for item := range input_data {
 
@@ -520,24 +531,18 @@ func update_work_allocation_table(workAllocationMap map[string][]string, workCou
 		fmt.Println("(update_work_allocation_table) redis auth response: ", response)
 	}
 
-	response, err = conn.Do("SELECT", dbIndex)
-
-	if err != nil {
-		fmt.Println("(update_work_allocation_table) can't connect to redis namespace: ", dbIndex)
-		panic(err)
-	} else {
-		fmt.Println("(update_work_allocation_table) redis select namespace response: ", response)
-	}
-
 	//Use defer to ensure the connection is always
 	//properly closed before exiting the main() function.
 	defer conn.Close()
 
 	//map of assigned work (worker pod -> array of message ids)
+
 	for k, v := range workAllocationMap {
 
 		fmt.Println("(update_work_allocation_table) store work map item: ", k, " -> ", v, " count: ", workCount)
+
 		workCount = update_management_data_redis(k, v, conn, workCount)
+
 	}
 
 	//keep a counter of how many worker entries were written
@@ -675,8 +680,7 @@ func loadSyntheticData(w http.ResponseWriter, r *http.Request, start_sequence in
 	w.Write([]byte("<html><h1>Generating and Loading Synthetic Data</h1></html>"))
 
 	//Generate input file list and distribute among workers
-	inputQueue := generate_input_sources(start_sequence, end_sequence) //Generate the total list of input files in the source dirs
-
+	inputQueue := generate_input_sources(start_sequence, end_sequence) //Generate the total list of inputs
 	metadata := strings.Join(inputQueue, ",")
 	logger(logFile, "(loadSyntheticData) generated new workload metadata: "+metadata)
 
@@ -898,7 +902,9 @@ func (a adminPortal) selectionHandler(w http.ResponseWriter, r *http.Request) {
 
 		fmt.Println("(selectionHandler) got parameter strings: ", start_of_sequence, end_of_sequence)
 
-		bootStrapOrderData(sequenceReplayDBindex, start_of_sequence, end_of_sequence)
+		serial := 0 //stream the orders to the api in original order 1 or in parallel 0
+
+		bootStrapOrderData(sequenceReplayDBindex, start_of_sequence, end_of_sequence, serial)
 
 	}
 
@@ -1668,14 +1674,18 @@ func read_input_sources_redis(sourceDBIndex int) (inputs []string) {
 		fmt.Println("(read_input_sources_redis) OK redis auth response: ", response)
 	}
 
-	defer conn.Close()
-
 	//GET ALL VALUES FROM DISCOVERED KEYS ONLY
 	//select correct DB for this source
 	fmt.Println("(read_input_sources_redis) select redis db: ", sourceDBIndex)
-	conn.Do("SELECT", sourceDBIndex)
+	conn.Do("SELECT", 6)
 
+	defer conn.Close()
+
+	//data, err := redis.Strings(conn.Do("KEYS", "*"))
 	data, err := redis.Strings(conn.Do("KEYS", "*"))
+
+	fmt.Println("(read_input_sources_redis) read items from redis db length: ", len(data))
+	fmt.Println("(read_input_sources_redis) read items from redis db: content", data)
 
 	if err != nil {
 		log.Fatal(err)
@@ -1928,10 +1938,12 @@ func bootStrapOrderDataWrapper(sequenceReplayDBindex int) {
 	//find current time, time 168 hours ago in ISO format
 	msgStartTime, msgStopTime := getOrderInterval(dumpTimeInterval)
 
-	bootStrapOrderData(sequenceReplayDBindex, msgStartTime, msgStopTime)
+	serial := 0 //don't preserve the order sequence when using in load testing - just blast orders out randomly
+
+	bootStrapOrderData(sequenceReplayDBindex, msgStartTime, msgStopTime, serial)
 }
 
-func bootStrapOrderData(sequenceReplayDBindex int, msgStartTime string, msgStopTime string) {
+func bootStrapOrderData(sequenceReplayDBindex int, msgStartTime string, msgStopTime string, serial int) {
 
 	//load the last 6 days of orders data from the kafka `api0001` topic
 	//in preparation for any new load test (sequential order replay)
@@ -1949,13 +1961,13 @@ func bootStrapOrderData(sequenceReplayDBindex int, msgStartTime string, msgStopT
 	fmt.Println("(bootStrapOrderData) streaming orders from " + msgStartTime + " to " + msgStopTime)
 
 	if err != nil {
-		log.Fatalln(err)
+		fmt.Println("error connecting to order dumper service", orderDumperServiceAddress)
 	}
 
 	body, err := ioutil.ReadAll(resp.Body)
 
 	if err != nil {
-		fmt.Println("(bootStrapOrderData) error reading ingest status endpoint: ", err)
+		fmt.Println("(bootStrapOrderData) error reading ingest status endpoint: ", orderDumperServiceAddress)
 	}
 
 	status := string(body)
@@ -1993,6 +2005,92 @@ func bootStrapOrderData(sequenceReplayDBindex int, msgStartTime string, msgStopT
 
 		time.Sleep(5 * time.Second)
 	}
+
+	//assign the new orders to worker (serial) or workers (concurrent)
+	if serial == 0 {
+		//don't preserve the sequence of orders as read from kafka
+		//in the REDIS DB table
+		allocateOrderDataConcurrent(sequenceReplayDBindex)
+	}
+
+	if serial == 1 {
+		//Preserve the sequence of orders as read from kafka in REDIS work allocation table.
+		allocateOrderDataSerial(sequenceReplayDBindex)
+	}
+
+}
+
+func allocateOrderDataConcurrent(db int) {
+
+	//allocate the newly dumped order data to workers for concurrent processing
+	//(different from the serial processing which is only assigned to one worker)
+
+	//Generate input file list and distribute among workers
+	inputQueue := read_input_sources_redis(db)
+
+	logger(logFile, "(allocateOrderDataConcurrent) generated new workload metadata length: "+strconv.Itoa(len(inputQueue)))
+
+	metadata := strings.Join(inputQueue, ",")
+
+	logger(logFile, "(allocateOrderDataConcurrent) generated new workload metadata: "+metadata)
+
+	//Allocate workers to the input data
+	workCount := 0
+	namespace := "ragnarok"
+
+	//get the currently deployed worker pods in the producer pool
+	workers, cnt := get_worker_pool(workerType, namespace)
+
+	//delete the current work allocation table as it is now stale data
+	delete_stale_allocation_data(workers)
+
+	logger(logFile, "(allocateOrderDataConcurrent) done deleting stale allocation data. Preparing to create work allocation map ...")
+
+	//Assign message workload to worker pods
+	workAllocationMap := assign_message_workload_workers(workers, inputQueue, cnt)
+
+	fmt.Println("(allocateOrderDataConcurrent) got work allocation map:", workAllocationMap)
+
+	//Update the work allocation in a REDIS database
+	workCount = update_work_allocation_table(workAllocationMap, workCount)
+
+	//update this global
+	scaleMax = workCount
+
+}
+
+func allocateOrderDataSerial(db int) {
+
+	//allocate the newly dumped order data to workers for concurrent processing
+	//(different from the serial processing which is only assigned to one worker)
+
+	//Generate input file list and distribute among workers
+	inputQueue := read_input_sources_redis(db)
+
+	metadata := strings.Join(inputQueue, ",")
+
+	logger(logFile, "(allocateOrderData) generated new workload metadata: "+metadata)
+
+	//Allocate workers to the input data
+	workCount := 0
+	namespace := "ragnarok"
+
+	//get the currently deployed worker pods in the producer pool
+	workers, cnt := get_worker_pool(workerType, namespace)
+
+	//delete the current work allocation table as it is now stale data
+	delete_stale_allocation_data(workers)
+
+	logger(logFile, "(allocateOrderData) done deleting stale allocation data. Preparing to create work allocation map ...")
+
+	//Assign message workload to worker pods
+	workAllocationMap := assign_message_workload_workers(workers, inputQueue, cnt)
+
+	//Update the work allocation in a REDIS database
+	workCount = update_work_allocation_table(workAllocationMap, workCount)
+
+	//update this global
+	scaleMax = workCount
 
 }
 
@@ -2040,6 +2138,45 @@ func getOrderInterval(dumpTimeInterval int) (string, string) {
 
 }
 
+func flushStaleOrderData(sourceDBIndex int) error {
+
+	//Get from Redis
+	conn, err := redis.Dial("tcp", redisWriteConnectionAddress)
+
+	if err != nil {
+		fmt.Println("(flushStaleOrderData) error dialing redis master connection: ", err)
+	}
+
+	// Now authenticate
+	response, err := conn.Do("AUTH", redisAuthPass)
+
+	if err != nil {
+		fmt.Println("(flushStaleOrderData) PANIC redis auth response: ", response)
+	} else {
+		fmt.Println("(flushStaleOrderData) OK redis auth response: ", response)
+	}
+
+	fmt.Println("(flushStaleOrderData) select redis db: ", sourceDBIndex)
+	conn.Do("SELECT", sourceDBIndex)
+
+	defer conn.Close()
+
+	_, err = conn.Do("FLUSHDB")
+
+	fmt.Println("(flushStaleOrderData) flushed redis order data db: ", sourceDBIndex)
+
+	if err != nil {
+		fmt.Println("(flushStaleOrderData) couldn't flush the db", sourceDBIndex, " ", err)
+	}
+
+	//revert to the default DB index (0)
+	fmt.Println("(read_input_sources_redis) select default redis db: ", 0)
+	conn.Do("SELECT", 0)
+
+	//return the list of messages that exist in redis ...
+	return err
+}
+
 func main() {
 
 	//refresh status of all synthetic user credentials in REDIS DB (DBN index 14)
@@ -2050,6 +2187,14 @@ func main() {
 	//this is stored in REDIS DB 6
 	//DON'T BLOCK!
 	go func() {
+
+		//flush any previous data as it's stale ???
+		err := flushStaleOrderData(sequenceReplayDBindex)
+
+		if err != nil {
+			fmt.Println("(main) could not  flush the order dump db!", err)
+		}
+
 		bootStrapOrderDataWrapper(sequenceReplayDBindex)
 	}()
 

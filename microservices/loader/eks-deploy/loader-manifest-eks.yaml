@@ -19,7 +19,7 @@ spec:
       serviceAccountName: internal-kubectl
       containers:
       - name: loader
-        image: archbungle/loader:pulsar-0.0.68d17
+        image: archbungle/loader:pulsar-0.0.68d27
         imagePullPolicy: IfNotPresent
         env:
         - name: NAMESPACE
@@ -51,7 +51,7 @@ spec:
         - name: KAFKA_BROKER3_ADDRESS
           value: "kafka-2.kafka-headless.kafka.svc.cluster.local:9092"
         - name: ORDER_DUMP_TIME_INTERVAL
-          value: "48"
+          value: "24"
         - name: REDIS_ALLOCATOR_NS_INDEX
           value: "11"
         - name: REDIS_MASTER_ADDRESS

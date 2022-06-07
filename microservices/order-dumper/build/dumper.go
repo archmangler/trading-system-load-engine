@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -72,29 +73,49 @@ type adminPortal struct {
 	password string
 }
 
+func data_check(message string) (err error) {
+	//simple illustrative data check for message (this is optional, really)
+	//Add all your pre-POST data checking here!
+
+	dMap := parseOrderData(message)
+
+	for k := range dMap {
+		if k != "clOrdId" {
+			if len(dMap[k]) > 0 {
+				fmt.Println("(data_check) checking payload message field (ok): ", k, " -> ", dMap[k])
+			} else {
+				fmt.Println("(data_check) found empty field in payload! (FAIL): ", k, " -> ", dMap[k])
+				return errors.New("(data_check) empty field in message! ... " + k + " -> " + dMap[k])
+			}
+		}
+	}
+
+	return nil
+}
+
 //Metrics Instrumentation
 var (
-	inputOrdersLoadTotal = promauto.NewCounter(prometheus.CounterOpts{
-		Name: "load_orders_ingested_total",
-		Help: "The total number of orders ingested to redis",
+	inputOrdersDumped = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "kafka_orders_dumped_total",
+		Help: "The total number of orders dumped from kafka",
 	})
 
-	inputOrdersLoadErrors = promauto.NewCounter(prometheus.CounterOpts{
-		Name: "load_orders_ingesterrors_total",
-		Help: "The total number of orders failed to ingest to redis",
+	dumpOrdersLoadErrors = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "kafka_orders_loaderrors_total",
+		Help: "The total number of kafka orders failed to ingest to redis",
 	})
 )
 
-func recordSuccessMetrics() {
+func recordOrderDumpMetrics() {
 	go func() {
-		inputOrdersLoadTotal.Inc()
+		inputOrdersDumped.Inc()
 		time.Sleep(2 * time.Second)
 	}()
 }
 
-func recordFailureMetrics() {
+func recordDumpFailureMetrics() {
 	go func() {
-		inputOrdersLoadErrors.Inc()
+		dumpOrdersLoadErrors.Inc()
 		time.Sleep(2 * time.Second)
 	}()
 }
@@ -150,7 +171,7 @@ func jsonToMap(theString string) map[string]string {
 	dMap["blockWaitAck"] = fmt.Sprint(data.BlockWaitAck)
 	dMap["clOrdId"] = string(data.ClOrdId)
 
-	fmt.Printf("debug %s\n", dMap)
+	fmt.Printf("(jsonToMap)json marshalling result: %s\n", dMap)
 
 	return dMap
 }
@@ -406,14 +427,21 @@ func processHistoricalOrderStream() {
 				fmt.Println(content)
 			}
 
-			//TODO: Write this function
-			dMap := parseOrderData(content)
+			//pre-check  for missing/empty data fields in content string
+			err = data_check(content)
 
+			//only process into redis if all important fields are non-empty
+			if err != nil {
+				fmt.Println("input from kafka dump has missing fields: ", content)
+			}
+
+			dMap := parseOrderData(content)
 			fmt.Println("(processHistoricalOrderStream) ", dMap)
 
 			//process into to redis ...
 			//write_binary_message_to_redis(msgCount int, errCount int, msgIndex int, d map[string]string, conn redis.Conn)
 			oCnt, errCnt = write_binary_message_to_redis(oCnt, errCnt, line, dMap, conn)
+
 			fmt.Println("(processHistoricalOrderStream) ", " orders inserted: ", oCnt, " order insertion errors: ", errCnt)
 
 		}
@@ -641,7 +669,7 @@ func write_binary_message_to_redis(msgCount int, errCount int, msgIndex int, d m
 
 		logger("write_binary_message_to_redis", "#debug #debug (write_binary_message_to_redis): error writing message to redis: "+err.Error())
 		//record as a failure metric
-		recordFailureMetrics()
+		recordDumpFailureMetrics()
 		errCount++
 
 	} else {
@@ -649,7 +677,8 @@ func write_binary_message_to_redis(msgCount int, errCount int, msgIndex int, d m
 		logger("write_binary_message_to_redis", "#debug (write_binary_message_to_redis): wrote message to redis. count: "+strconv.Itoa(msgCount))
 		//record as a success metric
 
-		recordSuccessMetrics()
+		recordOrderDumpMetrics()
+
 		msgCount++
 	}
 
