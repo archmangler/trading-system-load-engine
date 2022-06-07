@@ -53,10 +53,8 @@ var consumer_group = os.Getenv("HOSTNAME")                             // we set
 var base_url string = os.Getenv("API_BASE_URL") //"trading-api.dexp-qa.com"
 var username, password string
 
-var userID int = 2661                                          // really arbitrary placehodler
 var clOrdId string = os.Getenv("TRADING_API_CLORID")           //"test-1-traiano45"
 var blockWaitAck, _ = strconv.Atoi(os.Getenv("BLOCKWAIT_ACK")) //blockwaitack
-var account int = 0                                            //updated with the value of requestID for each new login to the API
 
 var batchIndex int = 0 //counter for batching up cancels
 var cancelMap map[int]string
@@ -134,6 +132,8 @@ func sign_api_request(apiSecret string, requestBody string) (s string) {
 
 //4. Build up the request body
 func create_order(secret_key string, api_key string, base_url string, orderParameters map[string]string, orderIndex int, request_id string, userId int) {
+
+	fmt.Println("(create_order) input parameters before marshalling: ", orderParameters)
 
 	//Request body for POSTing a Trade
 	params, err := json.Marshal(orderParameters)
@@ -552,19 +552,19 @@ func check_errors(e error, jobId int) {
 
 //3. Modify JSON document with newuser ID and any other details that's needed to update old order data
 //updateOrder(order, account, blockWaitAck, userId, clOrdId)
-func updateOrder(order map[string]string, account int, blockWaitAck int, userId int, clOrdId string) (Order map[string]string) {
+func updateOrder(order map[string]string, account string, blockWaitAck int, userId string, clOrdId string) (Order map[string]string) {
 
 	//replace the userId with the currently active user
 	//Order = order
 	fmt.Println("(updateOrder): updating this map: ", order)
 
 	//debug
-	fmt.Println("(updateOrder): updating these fields: ", userId, clOrdId, blockWaitAck, account)
+	fmt.Println("(updateOrder): updating these fields: userid = ", userId, " clOrdId = ", clOrdId, " blockWaitAck = ", blockWaitAck, " account = ", account)
 
 	order["clOrdId"] = clOrdId
-	order["userId"] = strconv.Itoa(userId)
+	order["userId"] = userId
 	order["blockWaitAck"] = strconv.Itoa(blockWaitAck)
-	order["account"] = strconv.Itoa(account)
+	order["account"] = account
 
 	//debug
 	fmt.Println("(updateOrder) after updating map: ", order)
@@ -592,7 +592,7 @@ func parseJSONmessage(theString string) map[string]string {
 	//marshalling issue
 	json.Unmarshal([]byte(theString), &dMap)
 
-	//fmt.Println("(parseJSONmessage) after marshalling: ", dMap)
+	fmt.Println("(parseJSONmessage) after marshalling: ", dMap)
 
 	/*
 		dMap["instrumentId"] = data.InstrumentId
@@ -625,9 +625,9 @@ func empty_msg_check(message string) (err error) {
 	return nil
 }
 
-//simple illustrative data check for message (this is optional, really)
-//Add all your pre-POST data checking here!
 func data_check(message string) (err error) {
+	//simple illustrative data check for message (this is optional, really)
+	//Add all your pre-POST data checking here!
 
 	dMap := parseJSONmessage(message)
 
@@ -778,6 +778,11 @@ func consume_payload_data(client pulsar.Client, topic string, id int, credential
 				order := jsonToMap(message) //convert the json string to a map[string]string to access the order elements
 
 				fmt.Println("(consume_payload_data) json converted map: ", "(", orderIndex, ")", order)
+
+				account := credentials["account"]
+				userID := credentials["userid"]
+
+				fmt.Println("(consume_payload_data) will update order with these parameters: account = ", account, " userID = ", userID)
 
 				order = updateOrder(order, account, blockWaitAck, userID, clOrdId)
 
@@ -1120,12 +1125,12 @@ func update_parameter_to_redis(credentialIndex int, usedStatus int, connw redis.
 	//select correct DB (0)
 	fmt.Println("(update_parameter_to_redis) switching DB index")
 	connw.Do("SELECT", credentialsDBindex)
-	fmt.Println("(update_parameter_to_redis) setting required parameter value: ", usedStatus)
 
 	//Testing.
-	//used, _ := strconv.Atoi(usedStatus)
+	used := strconv.Itoa(usedStatus)
+	fmt.Println("(update_parameter_to_redis) setting required parameter value: ", usedStatus, " -> string -> ", used)
 
-	_, err = connw.Do("HSET", strconv.Itoa(credentialIndex), "used", usedStatus)
+	_, err = connw.Do("HSET", strconv.Itoa(credentialIndex), "used", used)
 
 	if err != nil {
 		fmt.Println("(update_parameter_to_redis) WARNING: error updating entry in redis " + strconv.Itoa(credentialIndex))
@@ -1150,7 +1155,12 @@ func main() {
 	//update old order data with unique, current information
 	request_id, _ := strconv.Atoi(credentials["request_id"])
 	userID = request_id
-	account = request_id
+	account := request_id
+
+	credentials["userid"] = strconv.Itoa(userID)
+	credentials["account"] = strconv.Itoa(account)
+
+	fmt.Println("(main) running this worker with user ID: ", credentials["userid"], " and account number: ", credentials["account"])
 
 	//Connect to Pulsar
 	client, err := pulsar.NewClient(

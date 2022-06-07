@@ -7,7 +7,7 @@ spec:
   selector:
     matchLabels:
       app: consumer
-  replicas: 200
+  replicas: 10
   strategy:
     type: RollingUpdate
     rollingUpdate:
@@ -23,7 +23,7 @@ spec:
       containers:
       - name: consumer
         #image: archbungle/load-consumer:pulsar-0.0.42d12
-        image: engeneon.jfrog.io/engeneon-docker/load-consumer:pulsar-0.0.42d12
+        image: engeneon.jfrog.io/engeneon-docker/load-consumer:pulsar-0.0.42d18
         imagePullPolicy: IfNotPresent
         env:
         - name: API_BASE_URL

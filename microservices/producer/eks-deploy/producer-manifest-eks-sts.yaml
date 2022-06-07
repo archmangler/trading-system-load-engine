@@ -18,13 +18,13 @@ spec:
     spec:
       containers:
       - name: producer
-        image: archbungle/load-tester:pulsar-0.0.56d15
+        image: archbungle/load-tester:pulsar-0.0.56d16
         imagePullPolicy: IfNotPresent
         env:
         - name: NUM_JOBS
-          value: "200"
+          value: "20"
         - name: NUM_WORKERS
-          value: "200"
+          value: "20"
         - name: PULSAR_BROKER_SERVICE_ADDRESS
           value: "pulsar://pulsar-broker.pulsar.svc.cluster.local:6650"
         - name: PULSAR_CONSUMER_SUBSCRIPTION_NAME
@@ -41,6 +41,8 @@ spec:
           value: "ragnarok-redis-replicas.redis.svc.cluster.local:6379"
         - name: REDIS_PASS
           value: "Yj7Oe21iHz"
+        - name: SEQUENCE_REPLAY_DB
+          value: "6"
         - name: CONSUMER_GROUP
           value: "cg002"
         - name: DATA_SOURCE_DIRECTORY
