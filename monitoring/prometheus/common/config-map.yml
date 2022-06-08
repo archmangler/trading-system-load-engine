@@ -62,3 +62,9 @@ data:
           - targets: ['dumper-service.ragnarok.svc.cluster.local:80']
             labels:
               group: 'dumper-service'
+          - targets: ['serialin-service.ragnarok.svc.cluster.local:80']
+            labels:
+              group: 'serialin-service'
+          - targets: ['serialout-service.ragnarok.svc.cluster.local:80']
+            labels:
+              group: 'serialout-service'
