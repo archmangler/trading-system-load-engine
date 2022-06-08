@@ -18,7 +18,7 @@ spec:
     spec:
       containers:
       - name: producer
-        image: archbungle/load-tester:pulsar-0.0.56d16
+        image: archbungle/load-tester:pulsar-0.0.56d17
         imagePullPolicy: IfNotPresent
         env:
         - name: NUM_JOBS

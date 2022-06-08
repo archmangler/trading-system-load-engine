@@ -544,7 +544,7 @@ func process_input_data_redis_concurrent(workerId int, jobId int) {
 		}
 
 		//then remove the work allocation entry in Redis
-		//purgeProcessedMetadataRedis(conn)
+		purgeProcessedMetadataRedis(conn)
 
 	}
 

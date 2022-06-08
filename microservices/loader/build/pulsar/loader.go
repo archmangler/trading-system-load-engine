@@ -31,6 +31,7 @@ var ingestionServiceAddress string = os.Getenv("INGESTOR_SERVICE_ADDRESS")      
 var replayServiceAddress string = os.Getenv("REPLAY_SERVICE_ADDRESS")            //
 var orderDumperServiceAddress string = os.Getenv("ORDER_DUMPER_SERVICE_ADDRESS") //for the service that dumps the last week's order from kafkap topic api0001
 var dumpTimeInterval, _ = strconv.Atoi(os.Getenv("ORDER_DUMP_TIME_INTERVAL"))    //hours into the past to dump orders in kafka from
+var serialLoadTestService = os.Getenv("SERIAL_LOAD_TEST_SERVICE")                //SERIAL_LOAD_TEST_SERVICE
 
 //pulsar connection details
 var brokerServiceAddress = os.Getenv("PULSAR_BROKER_SERVICE_ADDRESS") // e.g "pulsar://pulsar-mini-broker.pulsar.svc.cluster.local:6650"
@@ -934,6 +935,23 @@ func (a adminPortal) selectionHandler(w http.ResponseWriter, r *http.Request) {
 
 	}
 
+	if selection[parts[0]] == "RestartSerialLoadTest" {
+
+		//trigger the serial load test service, which loads trading Orders in the order the were
+		//originally created fand dumped from the kafka queue ...
+
+		status := "null"
+
+		w.Write([]byte("<html><h1>Resetting serial load generator and starting load test with sequential orders </h1></html>"))
+
+		scaleMax = 1
+
+		status = restart_loading_services(serialLoadTestService, scaleMax, namespace, w, r) //restart the serial load producer ...
+
+		w.Write([]byte("<html> <br>Restarted serial producer - " + status + "</html>"))
+
+	}
+
 	//no matter what, always call the credential status refresh
 	//to make sure each management function call unlocks synthetic
 	//user credentials for use
@@ -969,7 +987,7 @@ func (a adminPortal) handler(w http.ResponseWriter, r *http.Request) {
   </form>
 
   <form action="/selected?param=RestartLoadTest" method="post">
-  <input type="submit" name="RestartLoadTest" value="restart / reset load test" style="padding:20px;">
+  <input type="submit" name="RestartLoadTest" value="restart / reset CONCURRENT load test" style="padding:20px;">
   <br>
   </form>
  
@@ -983,6 +1001,11 @@ func (a adminPortal) handler(w http.ResponseWriter, r *http.Request) {
   <input type="submit" name="LoadRequestSequence" value="load request sequence" style="padding:20px;" style="font-family:verdana;"> 
   <html style="font-family:verdana;">Start time of sequence (format: 2022-06-04T15:49:43.000Z):</html><input type="text" name="start" >
   <html style="font-family:verdana;">End time of Sequence (format: 2022-06-04T15:49:43.000Z):</html><input type="text" name="stop" >
+  </form>
+
+  <form action="/selected?param=RestartSerialLoadTest" method="post">
+  <input type="submit" name="RestartSerialLoadTest" value="restart / reset SEQUENTIAL load test" style="padding:20px;">
+  <br>
   </form>
 
   <form action="/selected?param=backupProcessedData" method="post">
@@ -1681,7 +1704,6 @@ func read_input_sources_redis(sourceDBIndex int) (inputs []string) {
 
 	defer conn.Close()
 
-	//data, err := redis.Strings(conn.Do("KEYS", "*"))
 	data, err := redis.Strings(conn.Do("KEYS", "*"))
 
 	fmt.Println("(read_input_sources_redis) read items from redis db length: ", len(data))

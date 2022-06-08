@@ -52,6 +52,8 @@ function create_default_topics {
    sleep 5
    kubectl -n pulsar exec -it  pulsar-toolset-0 -- /pulsar/bin/pulsar-admin topics create persistent://ragnarok/transactions/requests
    sleep 5
+   kubectl -n pulsar exec -it  pulsar-toolset-0 -- /pulsar/bin/pulsar-admin topics create persistent://ragnarok/transactions/serialrequests
+   sleep 5
    kubectl -n pulsar exec -it  pulsar-toolset-0 -- /pulsar/bin/pulsar-admin topics list ragnarok/transactions
 
 }
