@@ -7,7 +7,7 @@ spec:
   selector:
     matchLabels:
       app: fxconsumer
-  replicas: 400
+  replicas: 50
   strategy:
     type: RollingUpdate
     rollingUpdate:
@@ -36,13 +36,13 @@ spec:
         - name: FIXTOOL_INSTRUMENT_PATH
           value: "/app/fix-perf-tools/config/instruments.csv"
         - name: FIX_ORDERS_RATE
-          value: "1000"
+          value: "50"
         - name: FIX_ORDERS_NEW_PERCENTAGE
           value: "50"
         - name: FIX_ORDERS_MATCHING_PERCENTAGE
-          value: "0"
+          value: "30"
         - name: FIX_ORDERS_CANCEL_PERCENTAGE
-          value: "50"
+          value: "20"
         - name: STATS_PRINTING_RATE
           value: "5"
         - name: FIX_OM_TARGET_COMPID
