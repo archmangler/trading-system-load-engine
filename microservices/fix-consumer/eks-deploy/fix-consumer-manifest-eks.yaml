@@ -7,7 +7,7 @@ spec:
   selector:
     matchLabels:
       app: fxconsumer
-  replicas: 50
+  replicas: 400
   strategy:
     type: RollingUpdate
     rollingUpdate:
@@ -22,7 +22,7 @@ spec:
 #        agentpool: np003
       containers:
       - name: fxconsumer
-        image: archbungle/load-fxconsumer:pulsar-0.0.4d5
+        image: archbungle/load-fxconsumer:pulsar-0.0.4d6
         imagePullPolicy: IfNotPresent
         env:
         - name: FIXTOOL_TEST_MODE
@@ -36,13 +36,13 @@ spec:
         - name: FIXTOOL_INSTRUMENT_PATH
           value: "/app/fix-perf-tools/config/instruments.csv"
         - name: FIX_ORDERS_RATE
-          value: "50"
+          value: "1000"
         - name: FIX_ORDERS_NEW_PERCENTAGE
           value: "50"
         - name: FIX_ORDERS_MATCHING_PERCENTAGE
-          value: "30"
+          value: "0"
         - name: FIX_ORDERS_CANCEL_PERCENTAGE
-          value: "20"
+          value: "50"
         - name: STATS_PRINTING_RATE
           value: "5"
         - name: FIX_OM_TARGET_COMPID

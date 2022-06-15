@@ -40,7 +40,7 @@ spec:
         - name: NUM_WORKERS
           value: "1"
         - name: KAFKA_SOURCE_BROKER_ADDRESS
-          value: "10.0.9.118"
+          value: "10.0.43.66"
         - name: DEFAULT_REPLICA_MAX
           value: "10"
         - name: PULSAR_BROKER_SERVICE_ADDRESS
