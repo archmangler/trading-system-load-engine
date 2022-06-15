@@ -3,6 +3,7 @@ package main
 /* Consumer Pool Management Service*/
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -24,6 +25,30 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
+
+//FIX related defaults
+var fixOrdersRate = os.Getenv("FIX_ORDERS_RATE")                    //value: 10
+var fixOrdersNewPercentage = os.Getenv("FIX_ORDERS_NEW_PERCENTAGE") //value: "50"
+var fixOrdersMatchingPercentage = os.Getenv("FIX_ORDERS_MATCHING_PERCENTAGE")
+var fixOrdersCancelPercentage = os.Getenv("FIX_ORDERS_CANCEL_PERCENTAGE") //value: "50"
+var statsPrintingRate = os.Getenv("STATS_PRINTING_RATE")                  //value: "5"
+var fixOmTargetCompId = os.Getenv("FIX_OM_TARGET_COMPID")                 //value: "testnet.fix-om.equos"
+var fixOmHostIP = os.Getenv("FIX_OM_HOST_IP")                             //value: "10.0.43.159"
+var fixOmHostPort = os.Getenv("FIX_OM_HOST_PORT")                         //value: "4802"
+var fixMdTargetCompId = os.Getenv("FIX_MD_TARGET_COMPID")                 //value: "testnet.fix-om.equos"
+var fixMdHostIp = os.Getenv("FIX_MD_HOST_IP")                             //value: "10.0.43.159"
+var fixMdHostPort = os.Getenv("FIX_MD_HOST_PORT")                         //value: 4802
+var user1Username = os.Getenv("USER1_USERNAME")                           //value: "test_eqonex_pt_22may16_indi_0lad@harakirimail.com"
+var user1Password = os.Getenv("USER1_PASSWORD")                           //value: "Diginextest@123"
+var user1CompId = os.Getenv("USER1_COMPID")                               //value: "102283"
+var configFilePath = os.Getenv("FIXTOOL_CONF_FILE")                       // path to the fix testing util config file
+var credentialFilePath = os.Getenv("FIXTOOL_CREDENTIAL_FILE")             // path to the fix testing util user credential file
+var toolJarPath = os.Getenv("FIXTOOL_JAR_PATH")
+var instrumentFilePath = os.Getenv("FIXTOOL_INSTRUMENT_PATH")
+var FIXTestMode = os.Getenv("FIXTOOL_TEST_MODE") //Supported tet scenarios are as follows: * log - log in the users and disconnect once all the users are logged in
+//* ord - log in the users and place orders
+//* mkt - log in the users and listen to market data
+//* both - log in the users and place orders while listening to market da
 
 //REDIS related parameters for credential lookups
 var redisWriteConnectionAddress string = os.Getenv("REDIS_MASTER_ADDRESS") //address:port combination e.g  "my-release-redis-master.default.svc.cluster.local:6379"
@@ -865,6 +890,9 @@ func apiLogon(username string, password string, userID int, base_url string) (cr
 	fmt.Println("(apiLogon) : getting secret_key: ", loginData.RequestSecret)
 	credentials["secret_key"] = loginData.RequestSecret
 
+	credentials["username"] = username
+	credentials["password"] = password
+
 	return credentials
 
 }
@@ -1144,6 +1172,134 @@ func update_parameter_to_redis(credentialIndex int, usedStatus int, connw redis.
 
 }
 
+func buildFIXConf(credentials map[string]string) {
+
+	//create fix performance testing tool configuration files
+	//and populate with credentials and FIX GW parameters
+	//1. Create `config.properties`
+	//2. Create `users.csv` ... kind of redundant bu that's the way the tool works.
+
+	fileMap := make(map[string]string)
+
+	//crude, but effective ...
+	fileMap["l1"] = "orders.rate=" + fixOrdersRate
+	fileMap["l2"] = "orders.newPercentage=" + fixOrdersNewPercentage
+	fileMap["l3"] = "orders.matchingPercentage=" + fixOrdersMatchingPercentage
+	fileMap["l4"] = "orders.cancelPercentage=" + fixOrdersCancelPercentage
+	fileMap["l5"] = "stats.rate=" + statsPrintingRate
+	fileMap["l6"] = "env.fixOM.targetCompId=" + fixOmTargetCompId
+	fileMap["l7"] = "env.fixOM.host=" + fixOmHostIP
+	fileMap["l8"] = "env.fixOM.port=" + fixOmHostPort
+	fileMap["l9"] = "env.fixMD.targetCompId=" + fixOmTargetCompId
+	fileMap["l10"] = "env.fixMD.host=" + fixMdHostIp
+	fileMap["l11"] = "env.fixMD.port=" + fixMdHostPort
+	fileMap["l12"] = "user.1.username=" + user1Username
+	fileMap["l13"] = "user.1.password=" + user1Password
+	fileMap["l14"] = "user.1.compId=" + user1CompId
+
+	//write to file
+	f, err := os.Create(configFilePath)
+
+	if err != nil {
+		fmt.Println("(buildFIXConf) ", err)
+	}
+
+	defer f.Close()
+
+	for line := range fileMap {
+		fmt.Println("(buildFIXConf) print line to file: ", configFilePath, " -> ", fileMap[line])
+		fmt.Fprintln(f, fileMap[line])
+	}
+
+	fmt.Println("(buildFIXConf) done writing: ", configFilePath)
+
+	//write to file
+	f, err = os.Create(credentialFilePath)
+
+	if err != nil {
+		fmt.Println("(buildFIXConf) failed to write user credential file: ", err)
+	}
+
+	defer f.Close()
+
+	fileMap = make(map[string]string)
+
+	fileMap["header"] = "id,username,password,cod,account,mode"
+	fileMap["data1"] = credentials["userid"] + "," + credentials["username"] + "," + credentials["password"] + "," + "true" + "," + credentials["account"] + "," + "3"
+
+	for line := range fileMap {
+		fmt.Println("(buildFIXConf) print line to file: ", credentialFilePath, " -> ", fileMap[line])
+		fmt.Fprintln(f, fileMap[line])
+	}
+
+	fmt.Println("(buildFIXConf) done writing: ", credentialFilePath)
+
+}
+
+func executeFIXorderRequest(orderData map[string]string, mode string) (o map[int]string, e error) {
+
+	// java -jar target/fix-client-1.0-SNAPSHOT.jar -c config/config.properties -u config/users.csv -i config/instruments.csv -t both
+
+	arg1 := "java"
+	arg2 := "-jar"
+	arg3 := toolJarPath //"target/fix-client-1.0-SNAPSHOT.jar"
+	arg4 := "-c"
+	arg5 := configFilePath
+	arg6 := "-u"
+	arg7 := credentialFilePath
+	arg8 := "-i"
+	arg9 := instrumentFilePath
+	arg10 := "-t"
+	arg11 := mode
+
+	cmd := exec.Command(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11)
+
+	fmt.Println("(executeFIXorderRequest) BEGIN getting stdout from command ...")
+
+	//stream command output continuously
+	stdout, _ := cmd.StdoutPipe()
+	cmd.Start()
+	scanner := bufio.NewScanner(stdout)
+	//scanner.Split(bufio.ScanWords)
+
+	lc := 0
+	//command content map ...
+	outputData := make(map[int]string)
+
+	for scanner.Scan() {
+
+		m := scanner.Text()
+		fmt.Println(m)
+		fmt.Println("(executeFIXorderRequest) -> (", lc, ") ", m)
+		outputData[lc] = m
+		lc++
+
+		if lc >= 10000 {
+			fmt.Println("(executeFIXorderRequest) got enough feedback. stopping fix test ...")
+			break
+		}
+
+		fmt.Println("(executeFIXorderRequest) still in loop")
+
+	}
+
+	fmt.Println("(executeFIXorderRequest) I have exited the command loop!")
+
+	//cmd.Wait()
+
+	//End of streaming
+	fmt.Println("(executeFIXorderRequest) DONE getting stderr from command ...")
+
+	return outputData, nil
+
+}
+
+func processData(o map[int]string) {
+	for l := range o {
+		fmt.Println("(processData) -> ", o[l])
+	}
+}
+
 func main() {
 
 	username, password, userID := lookupRandomCredentials()
@@ -1161,6 +1317,17 @@ func main() {
 	credentials["account"] = strconv.Itoa(account)
 
 	fmt.Println("(main) running this worker with user ID: ", credentials["userid"], " and account number: ", credentials["account"])
+
+	//Build FIX tool configuration files
+	buildFIXConf(credentials)
+
+	orderData := make(map[string]string)
+
+	//Test execute FIX tool
+	outputData, _ := executeFIXorderRequest(orderData, FIXTestMode)
+
+	//process the resulting statistics
+	processData(outputData)
 
 	//Connect to Pulsar
 	client, err := pulsar.NewClient(
