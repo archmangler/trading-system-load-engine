@@ -7,7 +7,7 @@ spec:
   selector:
     matchLabels:
       app: fxconsumer
-  replicas: 400
+  replicas: 1000
   strategy:
     type: RollingUpdate
     rollingUpdate:
@@ -22,7 +22,7 @@ spec:
 #        agentpool: np003
       containers:
       - name: fxconsumer
-        image: archbungle/load-fxconsumer:pulsar-0.0.4d6
+        image: archbungle/load-fxconsumer:pulsar-0.0.5d7
         imagePullPolicy: IfNotPresent
         env:
         - name: FIXTOOL_TEST_MODE
@@ -46,15 +46,15 @@ spec:
         - name: STATS_PRINTING_RATE
           value: "5"
         - name: FIX_OM_TARGET_COMPID
-          value: "testnet.fix-om.equos"
+          value: "pt.fix-om.equos"
         - name: FIX_OM_HOST_IP
-          value: "10.0.43.159"
+          value: "10.0.46.99"
         - name: FIX_OM_HOST_PORT
           value: "4802"
         - name: FIX_MD_TARGET_COMPID
           value: "testnet.fix-om.equos"
         - name: FIX_MD_HOST_IP
-          value: "10.0.43.159"
+          value: "10.0.46.99"
         - name: FIX_MD_HOST_PORT
           value: "4802"
         - name: USER1_USERNAME 

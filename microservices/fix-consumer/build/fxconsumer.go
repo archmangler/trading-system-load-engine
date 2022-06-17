@@ -1542,6 +1542,9 @@ func main() {
 	datakeyMap["Outgoing Message Counts"] = "OutgoingMessageCounts"
 	datakeyMap["Outgoing Message Rates (per second)"] = "OutgoingMessageRatesps"
 
+	//register metric
+	prometheus.MustRegister(OutgoingMessageRatespsCancel)
+
 	username, password, userID := lookupRandomCredentials()
 	fmt.Println("(main) looked up credentials for login: ", username, password, userID)
 

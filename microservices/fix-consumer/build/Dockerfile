@@ -13,6 +13,7 @@ COPY *.go ./
 COPY use.py ./
 COPY sign384.py ./
 
+RUN go get github.com/apache/pulsar-client-go/pulsar
 RUN go build -o /fxconsumer
 RUN mkdir -p /data
 

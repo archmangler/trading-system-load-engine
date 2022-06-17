@@ -86,6 +86,44 @@ var cancelMap map[int]string
 var cancelBatchLimit, _ = strconv.Atoi(os.Getenv("CANCEL_BATCH_LIMIT"))
 var cancelAllThreshold, _ = strconv.Atoi(os.Getenv("CANCEL_ALL_THRESHOLD")) //cancelAllThreshold - run a cancellall after this many placed orders
 
+//instrumentation variables
+var datakeyMap = make(map[string]string)
+
+//Metrics Instrumentation: Define the metrics here:
+//1) map[OutgoingMessageRatespsCancel:0.0 OutgoingMessageRatespsNew:0.8 OutgoingMessageRatespsTotalMsgRate:0.8 OutgoingMessageRatespsTrades:0.0]
+var (
+	OutgoingMessageRatespsCancel = prometheus.NewGauge(prometheus.GaugeOpts{
+
+		Name: "fix_outgoing_message_persecond_cancel",
+		Help: "Outgoing messages cancelled per second",
+	})
+
+	OutgoingMessageRatespsNew = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "fix_outgoing_message_persecond_new",
+		Help: "New Outgoing Messages per second",
+	})
+
+	OutgoingMessageRatespsTotalMsgRate = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "fix_outgoing_message_persecond_total",
+		Help: "OutgoingMessageRatespsTotalMsgRate",
+	})
+
+	OutgoingMessageRatespsTrades = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "fix_outgoing_message_rates_ps_trades",
+		Help: "outgoing message rates per second trades",
+	})
+)
+
+func initMetrics() {
+
+	// Metrics have to be registered to be exposed:
+	prometheus.MustRegister(OutgoingMessageRatespsCancel)
+	prometheus.MustRegister(OutgoingMessageRatespsNew)
+	prometheus.MustRegister(OutgoingMessageRatespsTotalMsgRate)
+	prometheus.MustRegister(OutgoingMessageRatespsTrades)
+
+}
+
 //Global Error Counter during lifetime of this service run
 var errorCount int = 0
 var requestCount int = 0
@@ -1225,7 +1263,7 @@ func buildFIXConf(credentials map[string]string) {
 	fileMap = make(map[string]string)
 
 	fileMap["header"] = "id,username,password,cod,account,mode"
-	fileMap["data1"] = credentials["userid"] + "," + credentials["username"] + "," + credentials["password"] + "," + "true" + "," + credentials["account"] + "," + "3"
+	fileMap["data1"] = user1CompId + "," + user1Username + "," + user1Password + "," + "true" + "," + user1CompId + "," + "3"
 
 	for line := range fileMap {
 		fmt.Println("(buildFIXConf) print line to file: ", credentialFilePath, " -> ", fileMap[line])
@@ -1262,7 +1300,11 @@ func executeFIXorderRequest(orderData map[string]string, mode string) (o map[int
 	scanner := bufio.NewScanner(stdout)
 	//scanner.Split(bufio.ScanWords)
 
+	//for instrumentation
 	lc := 0
+	read := 0 //read flag
+	dataBloc := make(map[int]string)
+
 	//command content map ...
 	outputData := make(map[int]string)
 
@@ -1274,7 +1316,53 @@ func executeFIXorderRequest(orderData map[string]string, mode string) (o map[int
 		outputData[lc] = m
 		lc++
 
-		if lc >= 10000 {
+		//Begin instrumentation configuration: extract metrics and surface for prometheus
+		if strings.Contains(m, "Stat Update") && read != 1 {
+
+			read = 1
+			fmt.Println("(executeFIXorderRequest) begin reading data bloc -> ", m)
+			dataBloc[lc] = m
+
+		}
+
+		if read == 1 {
+
+			dataBloc[lc] = m
+			lc++
+
+		}
+
+		if strings.Contains(m, "MDIncrRefresh") && read == 1 {
+
+			read = 0
+			fmt.Println("(executeFIXorderRequest) end reading data bloc -> ", m)
+
+			dataBloc[lc] = m
+
+			//dump the bloc
+			fmt.Println("*** DUMP DATA BLOC *** ")
+
+			for item := range dataBloc {
+				fmt.Println(item, " => ", dataBloc[item])
+				s := strings.Split(dataBloc[item], ":")
+
+				dataKey := s[0]
+				dataVal := s[1]
+
+				fmt.Println("(executeFIXorderRequest) ", dataKey, " => ", dataVal)
+				extractMetrics(dataKey, dataVal)
+
+			}
+
+			lc = 0
+
+			dataBloc = make(map[int]string)
+
+		}
+
+		//end instrumentation configuration
+
+		if lc >= 1000000 {
 			fmt.Println("(executeFIXorderRequest) got enough feedback. stopping fix test ...")
 			break
 		}
@@ -1300,6 +1388,152 @@ func processData(o map[int]string) {
 	}
 }
 
+func extractMetrics(dataKey string, dataVal string) {
+
+	metricMap, metricMapKey, e := getMetricHeader(dataKey, dataVal) //create the metric header
+
+	if e != nil {
+
+		fmt.Println("(extractMetrics) no metrics here.")
+
+	} else {
+
+		fmt.Println("(extractMetrics) ", metricMap)
+		//update the metric counters using `metricMap`: update the golang metric counter function for each metric
+		updateMetrics(metricMapKey, metricMap)
+	}
+
+}
+
+func updateMetrics(metricMapKey string, metricMap map[string]string) {
+
+	//update the intrumentation counters to surface metrics for golang
+	fmt.Println("(updateMetrics) ", metricMapKey, " -> ", metricMap)
+
+	//For reference:
+	/*
+		datakeyMap["CancelOrder delays(ms)"] = "CancelOrderdelaysms"
+		datakeyMap["Incoming Message Rates (per second)"] = "IncomingMessageRatesps"
+		datakeyMap["Incoming message counts"] = "Incomingmessagecounts"
+		datakeyMap["MDFullRefresh delays(ms)"] = "MDFullRefreshdelaysms"
+		datakeyMap["MDIncrRefresh delays(ms)"] = "MDIncrRefreshdelaysms"
+		datakeyMap["NewOrder delays(ms)"] = "NewOrderdelaysms"
+		datakeyMap["Outgoing Message Counts"] = "OutgoingMessageCounts"
+		datakeyMap["Outgoing Message Rates (per second)"] = "OutgoingMessageRatesps"
+	*/
+
+	if metricMapKey == "OutgoingMessageRatespsCancel" {
+		fmt.Println("(updateMetrics) updating metrics class: ", metricMapKey, " -> ", metricMap)
+		//map[OutgoingMessageRatespsCancel:0.0 OutgoingMessageRatespsNew:0.8 OutgoingMessageRatespsTotalMsgRate:0.8 OutgoingMessageRatespsTrades:0.0]
+		OutgoingMessageRatespsCancelval := metricMap["OutgoingMessageRatespsCancel"]
+		if s, err := strconv.ParseFloat(OutgoingMessageRatespsCancelval, 32); err == nil {
+
+			go func() {
+				OutgoingMessageRatespsCancel.Set(s)
+				time.Sleep(2 * time.Second)
+			}()
+
+		} else {
+			fmt.Println("(updateMetrics) failed to convert metric: ", OutgoingMessageRatespsCancelval)
+		}
+	}
+
+	if metricMapKey == "OutgoingMessageRatespsNew" {
+
+		fmt.Println("(updateMetrics) updating metrics class: ", metricMapKey, " -> ", metricMap)
+		//map[OutgoingMessageRatespsCancel:0.0 OutgoingMessageRatespsNew:0.8 OutgoingMessageRatespsTotalMsgRate:0.8 OutgoingMessageRatespsTrades:0.0]
+
+		OutgoingMessageRatespsNewval := metricMap["OutgoingMessageRatespsNew"]
+
+		if s, err := strconv.ParseFloat(OutgoingMessageRatespsNewval, 32); err == nil {
+			OutgoingMessageRatespsNew.Set(s)
+		} else {
+			fmt.Println("(updateMetrics) failed to convert metric: ", OutgoingMessageRatespsNewval)
+		}
+
+	}
+
+	if metricMapKey == "OutgoingMessageRatespsTotalMsgRate" {
+
+		fmt.Println("(updateMetrics) updating metrics class: ", metricMapKey, " -> ", metricMap)
+		//map[OutgoingMessageRatespsCancel:0.0 OutgoingMessageRatespsNew:0.8 OutgoingMessageRatespsTotalMsgRate:0.8 OutgoingMessageRatespsTrades:0.0]
+
+		OutgoingMessageRatespsTotalMsgRateval := metricMap["OutgoingMessageRatespsTotalMsgRate"]
+
+		if s, err := strconv.ParseFloat(OutgoingMessageRatespsTotalMsgRateval, 32); err == nil {
+			OutgoingMessageRatespsTotalMsgRate.Set(s)
+		} else {
+			fmt.Println("(updateMetrics) failed to convert metric: ", OutgoingMessageRatespsTotalMsgRateval)
+		}
+
+	}
+
+	if metricMapKey == "OutgoingMessageRatespsTrades" {
+
+		fmt.Println("(updateMetrics) updating metrics class: ", metricMapKey, " -> ", metricMap)
+		//map[OutgoingMessageRatespsCancel:0.0 OutgoingMessageRatespsNew:0.8 OutgoingMessageRatespsTotalMsgRate:0.8 OutgoingMessageRatespsTrades:0.0]
+
+		OutgoingMessageRatespsTradesval := metricMap["OutgoingMessageRatespsTrades"]
+
+		if s, err := strconv.ParseFloat(OutgoingMessageRatespsTradesval, 32); err == nil {
+			OutgoingMessageRatespsTrades.Set(s)
+		} else {
+			fmt.Println("(updateMetrics) failed to convert metric: ", OutgoingMessageRatespsTradesval)
+		}
+
+	}
+
+}
+
+func getMetricHeader(dataKey string, dataVal string) (metrics map[string]string, dk string, e error) {
+
+	fmt.Println("(getMetricHeader) about to process: ", dataKey, " -> ", dataVal)
+
+	if !strings.Contains(dataKey, "DEBUG") {
+
+		metrics = make(map[string]string)
+		dataKey = lookupDataKeyMapping(dataKey)
+		//create the metric header
+		dataValParts := strings.Split(dataVal, ",")
+		for p := range dataValParts {
+			metricParts := strings.Split(dataValParts[p], "=")
+			if len(metricParts) == 2 {
+				metricKey := dataKey + strings.TrimSpace(metricParts[0])
+				//fmt.Println("(getMetricHeader) metric: ", metricKey, " = ", metricParts[1])
+				metrics[metricKey] = metricParts[1]
+			}
+		}
+
+		e = nil //be explicit
+
+	} else {
+		e = errors.New("nullmetrics")
+	}
+
+	//don't accept empty metrics
+	if len(metrics) == 0 {
+		fmt.Println("(getMetricHeader) zero metrics length: ", len(metrics))
+		e = errors.New("nullmetrics")
+
+	}
+
+	return metrics, dataKey, e
+}
+
+func lookupDataKeyMapping(dimension string) (dk string) {
+
+	//lookup the dimension name based on it's free text description from the eFIX tool output format
+	//NOTE: Any change to the FIX perf tool output format will break this!!
+
+	dimension = strings.TrimSpace(dimension)
+
+	dk = datakeyMap[dimension]
+
+	//fmt.Println("(lookupDataKeyMapping) looking up: ->", dimension, "<- got ", dk)
+
+	return dk
+}
+
 func main() {
 
 	username, password, userID := lookupRandomCredentials()
@@ -1317,6 +1551,32 @@ func main() {
 	credentials["account"] = strconv.Itoa(account)
 
 	fmt.Println("(main) running this worker with user ID: ", credentials["userid"], " and account number: ", credentials["account"])
+
+	//instrumentation metric lookup map
+	datakeyMap["CancelOrder delays(ms)"] = "CancelOrderdelaysms"
+	datakeyMap["Incoming Message Rates (per second)"] = "IncomingMessageRatesps"
+	datakeyMap["Incoming message counts"] = "Incomingmessagecounts"
+	datakeyMap["MDFullRefresh delays(ms)"] = "MDFullRefreshdelaysms"
+	datakeyMap["MDIncrRefresh delays(ms)"] = "MDIncrRefreshdelaysms"
+	datakeyMap["NewOrder delays(ms)"] = "NewOrderdelaysms"
+	datakeyMap["Outgoing Message Counts"] = "OutgoingMessageCounts"
+	datakeyMap["Outgoing Message Rates (per second)"] = "OutgoingMessageRatesps"
+
+	go func() {
+		//metrics endpoint
+		http.Handle("/metrics", promhttp.Handler())
+		err := http.ListenAndServe(port_specifier, nil)
+
+		if err != nil {
+			fmt.Println("(main) Could not start the metrics endpoint: ", err)
+		} else {
+			fmt.Println("(main) done setting up metrics endpoint: ")
+		}
+
+	}()
+
+	//register metric
+	initMetrics()
 
 	//Build FIX tool configuration files
 	buildFIXConf(credentials)
@@ -1342,19 +1602,6 @@ func main() {
 	}
 
 	defer client.Close()
-
-	go func() {
-		//metrics endpoint
-		http.Handle("/metrics", promhttp.Handler())
-		err := http.ListenAndServe(port_specifier, nil)
-
-		if err != nil {
-			fmt.Println("(main) Could not start the metrics endpoint: ", err)
-		} else {
-			fmt.Println("(main) done setting up metrics endpoint: ")
-		}
-
-	}()
 
 	//using a simple, single threaded loop - sequential consumption
 	fmt.Println("(main) contemplating running main worker loop ...")
