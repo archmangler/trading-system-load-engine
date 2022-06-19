@@ -7,7 +7,7 @@ spec:
   selector:
     matchLabels:
       app: fxconsumer
-  replicas: 1000
+  replicas: 1
   strategy:
     type: RollingUpdate
     rollingUpdate:
@@ -22,7 +22,7 @@ spec:
 #        agentpool: np003
       containers:
       - name: fxconsumer
-        image: archbungle/load-fxconsumer:pulsar-0.0.5d7
+        image: archbungle/load-fxconsumer:pulsar-0.0.5d35
         imagePullPolicy: IfNotPresent
         env:
         - name: FIXTOOL_TEST_MODE
