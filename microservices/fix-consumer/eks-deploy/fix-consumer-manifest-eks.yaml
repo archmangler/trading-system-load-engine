@@ -22,7 +22,7 @@ spec:
 #        agentpool: np003
       containers:
       - name: fxconsumer
-        image: archbungle/load-fxconsumer:pulsar-0.0.5d35
+        image: archbungle/load-fxconsumer:pulsar-0.0.5d37
         imagePullPolicy: IfNotPresent
         env:
         - name: FIXTOOL_TEST_MODE
