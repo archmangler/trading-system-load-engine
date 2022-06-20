@@ -25,6 +25,8 @@ spec:
         image: archbungle/load-fxconsumer:pulsar-0.0.5d37
         imagePullPolicy: IfNotPresent
         env:
+        - name: FIX_PERFORMANCE_TEST_SERVICE
+          value: "fxconsumer"
         - name: FIXTOOL_TEST_MODE
           value: "ord"
         - name: FIXTOOL_CONF_FILE
