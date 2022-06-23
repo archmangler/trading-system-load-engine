@@ -3,6 +3,7 @@ package main
 /* Consumer Pool Management Service*/
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -24,6 +25,30 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
+
+//FIX related defaults
+var fixOrdersRate = os.Getenv("FIX_ORDERS_RATE")                    //value: 10
+var fixOrdersNewPercentage = os.Getenv("FIX_ORDERS_NEW_PERCENTAGE") //value: "50"
+var fixOrdersMatchingPercentage = os.Getenv("FIX_ORDERS_MATCHING_PERCENTAGE")
+var fixOrdersCancelPercentage = os.Getenv("FIX_ORDERS_CANCEL_PERCENTAGE") //value: "50"
+var statsPrintingRate = os.Getenv("STATS_PRINTING_RATE")                  //value: "5"
+var fixOmTargetCompId = os.Getenv("FIX_OM_TARGET_COMPID")                 //value: "testnet.fix-om.equos"
+var fixOmHostIP = os.Getenv("FIX_OM_HOST_IP")                             //value: "10.0.43.159"
+var fixOmHostPort = os.Getenv("FIX_OM_HOST_PORT")                         //value: "4802"
+var fixMdTargetCompId = os.Getenv("FIX_MD_TARGET_COMPID")                 //value: "testnet.fix-om.equos"
+var fixMdHostIp = os.Getenv("FIX_MD_HOST_IP")                             //value: "10.0.43.159"
+var fixMdHostPort = os.Getenv("FIX_MD_HOST_PORT")                         //value: 4802
+var user1Username = os.Getenv("USER1_USERNAME")                           //value: "test_eqonex_pt_22may16_indi_0lad@harakirimail.com"
+var user1Password = os.Getenv("USER1_PASSWORD")                           //value: "Diginextest@123"
+var user1CompId = os.Getenv("USER1_COMPID")                               //value: "102283"
+var configFilePath = os.Getenv("FIXTOOL_CONF_FILE")                       // path to the fix testing util config file
+var credentialFilePath = os.Getenv("FIXTOOL_CREDENTIAL_FILE")             // path to the fix testing util user credential file
+var toolJarPath = os.Getenv("FIXTOOL_JAR_PATH")
+var instrumentFilePath = os.Getenv("FIXTOOL_INSTRUMENT_PATH")
+var FIXTestMode = os.Getenv("FIXTOOL_TEST_MODE") //Supported tet scenarios are as follows: * log - log in the users and disconnect once all the users are logged in
+//* ord - log in the users and place orders
+//* mkt - log in the users and listen to market data
+//* both - log in the users and place orders while listening to market da
 
 //REDIS related parameters for credential lookups
 var redisWriteConnectionAddress string = os.Getenv("REDIS_MASTER_ADDRESS") //address:port combination e.g  "my-release-redis-master.default.svc.cluster.local:6379"
@@ -60,6 +85,167 @@ var batchIndex int = 0 //counter for batching up cancels
 var cancelMap map[int]string
 var cancelBatchLimit, _ = strconv.Atoi(os.Getenv("CANCEL_BATCH_LIMIT"))
 var cancelAllThreshold, _ = strconv.Atoi(os.Getenv("CANCEL_ALL_THRESHOLD")) //cancelAllThreshold - run a cancellall after this many placed orders
+
+//instrumentation variables
+var datakeyMap = make(map[string]string)
+
+//Metrics Instrumentation: Define the metrics here:
+//1) map[OutgoingMessageRatespsCancel:0.0 OutgoingMessageRatespsNew:0.8 OutgoingMessageRatespsTotalMsgRate:0.8 OutgoingMessageRatespsTrades:0.0]
+var (
+
+	/*
+	  .1          CancelOrderDelaysmsAvg=0,
+	  .2          CancelOrderDelaysmsMin=0,
+	  .3          CancelOrderDelaysmsMax=0
+	*/
+
+	CancelOrderdelaysms = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "cancel_order_delays_ms_avg",
+		Help: "Cancel Order Delays Milliseconds (average)",
+	})
+
+	IncomingmessagecountsExecReport = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "incoming_message_count_exec_report",
+		Help: "Incoming Message Count Exec Report",
+	})
+
+	IncomingmessagecountsCancelReject = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "incoming_message_count_cancel_reject",
+		Help: "Incoming Message Cancel Reject Count",
+	})
+
+	IncomingmessagecountsMDIncrUpdate = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "incoming_message_count_md_incr_update",
+		Help: "incoming message count MD Incr Update",
+	})
+
+	//IncomingMessageRatespsExecReport
+	IncomingMessageRatespsExecReport = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "incoming_message_rates_persecond_exec_report",
+		Help: "Incoming Message Rates persecond Exec Report",
+	})
+
+	IncomingMessageRatespsCancelReject = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "incoming_message_rates_persecond_cancel_reject",
+		Help: "Incoming Message Rates per second Cancel Reject",
+	})
+
+	IncomingMessageRatespsMDIncrUpdate = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "incoming_message_rates_ps_md_incr_update",
+		Help: "incoming message rates per second MDIncrUpdate",
+	})
+
+	IncomingMessageRatespsmdIncrCount = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "incoming_message_rates_ps_mdincrcount",
+		Help: "Incoming Message Rates ps mdIncrCount",
+	})
+
+	//outgoing messages metrics
+	OutgoingMessageRatespsCancel = prometheus.NewGauge(prometheus.GaugeOpts{
+
+		Name: "fix_outgoing_message_persecond_cancel",
+		Help: "Outgoing messages cancelled per second",
+	})
+
+	OutgoingMessageRatespsNew = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "fix_outgoing_message_persecond_new",
+		Help: "New Outgoing Messages per second",
+	})
+
+	OutgoingMessageRatespsTotalMsgRate = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "fix_outgoing_message_persecond_total",
+		Help: "Outgoin FIX Message Rates ps Total Msg Rate",
+	})
+
+	OutgoingMessageRatespsTrades = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "fix_outgoing_message_rates_ps_trades",
+		Help: "Outgoing FIX message rates per second trades",
+	})
+
+	//OutgoingMessageCounts  ->  map[OutgoingMessageCountsCancel:0 OutgoingMessageCountsNew:1725 OutgoingMessageCountsTotal:1725 OutgoingMessageCountsTrade:0]
+	OutgoingMessageCountsCancel = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "fix_outgoing_message_counts_cancel",
+		Help: "Outgoing FIX Message Counts Cancel",
+	})
+
+	OutgoingMessageCountsNew = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "fix_outgoing_message_counts_new",
+		Help: "Outgoing FIX Message Counts New",
+	})
+
+	OutgoingMessageCountsTotal = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "fix_outgoing_message_counts_total",
+		Help: "Outgoing FIX Message Counts Total",
+	})
+
+	OutgoingMessageCountsTrade = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "fix_outgoing_message_counts_trade",
+		Help: "Outgoing FIX Message Counts Trade",
+	})
+
+	//new order delays
+	NewOrderdelaysms = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "fix_new_order_delays_ms",
+		Help: "New FIX Order delays average in milliseconds",
+	})
+
+	MDFullRefreshdelaysms = prometheus.NewGauge(prometheus.GaugeOpts{
+		Name: "md_full_refresh_delays_ms",
+		Help: "MD Full Refresh delays in average ms",
+	})
+
+	//MDIncrRefreshdelaysms  ->  map[MDIncrRefreshdelaysmsAvg:0 MDIncrRefreshdelaysmsMax:0 MDIncrRefreshdelaysmsMin:0]
+
+	//For reference:
+	/*
+		datakeyMap["CancelOrder delays(ms)"] = "CancelOrderdelaysms"
+
+		datakeyMap["Incoming Message Rates (per second)"] = "IncomingMessageRatesps"
+		datakeyMap["Incoming message counts"] = "Incomingmessagecounts"
+
+		datakeyMap["MDFullRefresh delays(ms)"] = "MDFullRefreshdelaysms"
+		datakeyMap["MDIncrRefresh delays(ms)"] = "MDIncrRefreshdelaysms"
+
+		datakeyMap["NewOrder delays(ms)"] = "NewOrderdelaysms"
+
+		datakeyMap["Outgoing Message Counts"] = "OutgoingMessageCounts"
+		datakeyMap["Outgoing Message Rates (per second)"] = "OutgoingMessageRatesps"
+	*/
+
+)
+
+func initMetrics() {
+
+	//MDFullRefreshdelaysms
+	prometheus.MustRegister(MDFullRefreshdelaysms)
+
+	//"NewOrderdelaysms"
+	prometheus.MustRegister(CancelOrderdelaysms)
+
+	//CancelOrderDelaysmsAvg
+	prometheus.MustRegister(NewOrderdelaysms)
+
+	// Metrics have to be registered to be exposed:
+	prometheus.MustRegister(IncomingmessagecountsExecReport)
+	prometheus.MustRegister(IncomingmessagecountsCancelReject)
+	prometheus.MustRegister(IncomingmessagecountsMDIncrUpdate)
+
+	prometheus.MustRegister(IncomingMessageRatespsExecReport)
+	prometheus.MustRegister(IncomingMessageRatespsCancelReject)
+	prometheus.MustRegister(IncomingMessageRatespsMDIncrUpdate)
+	prometheus.MustRegister(IncomingMessageRatespsmdIncrCount)
+
+	prometheus.MustRegister(OutgoingMessageRatespsCancel)
+	prometheus.MustRegister(OutgoingMessageRatespsNew)
+	prometheus.MustRegister(OutgoingMessageRatespsTotalMsgRate)
+	prometheus.MustRegister(OutgoingMessageRatespsTrades)
+
+	prometheus.MustRegister(OutgoingMessageCountsCancel)
+	prometheus.MustRegister(OutgoingMessageCountsNew)
+	prometheus.MustRegister(OutgoingMessageCountsTotal)
+	prometheus.MustRegister(OutgoingMessageCountsTrade)
+
+}
 
 //Global Error Counter during lifetime of this service run
 var errorCount int = 0
@@ -448,7 +634,6 @@ func cancelAllOrders(secret_key string, api_key string, base_url string, request
 
 	//Execute the post
 	fmt.Println("(cancelAllOrders) executing the POST ...")
-
 	resp, err := client.Do(request)
 
 	if err != nil {
@@ -866,6 +1051,9 @@ func apiLogon(username string, password string, userID int, base_url string) (cr
 	fmt.Println("(apiLogon) : getting secret_key: ", loginData.RequestSecret)
 	credentials["secret_key"] = loginData.RequestSecret
 
+	credentials["username"] = username
+	credentials["password"] = password
+
 	return credentials
 
 }
@@ -1145,9 +1333,656 @@ func update_parameter_to_redis(credentialIndex int, usedStatus int, connw redis.
 
 }
 
+func buildFIXConf(credentials map[string]string) {
+
+	//create fix performance testing tool configuration files
+	//and populate with credentials and FIX GW parameters
+	//1. Create `config.properties`
+	//2. Create `users.csv` ... kind of redundant bu that's the way the tool works.
+
+	fileMap := make(map[string]string)
+
+	//crude, but effective ...
+	fileMap["l1"] = "orders.rate=" + fixOrdersRate
+	fileMap["l2"] = "orders.newPercentage=" + fixOrdersNewPercentage
+	fileMap["l3"] = "orders.matchingPercentage=" + fixOrdersMatchingPercentage
+	fileMap["l4"] = "orders.cancelPercentage=" + fixOrdersCancelPercentage
+	fileMap["l5"] = "stats.rate=" + statsPrintingRate
+	fileMap["l6"] = "env.fixOM.targetCompId=" + fixOmTargetCompId
+	fileMap["l7"] = "env.fixOM.host=" + fixOmHostIP
+	fileMap["l8"] = "env.fixOM.port=" + fixOmHostPort
+	fileMap["l9"] = "env.fixMD.targetCompId=" + fixOmTargetCompId
+	fileMap["l10"] = "env.fixMD.host=" + fixMdHostIp
+	fileMap["l11"] = "env.fixMD.port=" + fixMdHostPort
+	fileMap["l12"] = "user.1.username=" + user1Username
+	fileMap["l13"] = "user.1.password=" + user1Password
+	fileMap["l14"] = "user.1.compId=" + user1CompId
+
+	//write to file
+	f, err := os.Create(configFilePath)
+
+	if err != nil {
+		fmt.Println("(buildFIXConf) ", err)
+	}
+
+	defer f.Close()
+
+	for line := range fileMap {
+		fmt.Println("(buildFIXConf) print line to file: ", configFilePath, " -> ", fileMap[line])
+		fmt.Fprintln(f, fileMap[line])
+	}
+
+	fmt.Println("(buildFIXConf) done writing: ", configFilePath)
+
+	//write to file
+	f, err = os.Create(credentialFilePath)
+
+	if err != nil {
+		fmt.Println("(buildFIXConf) failed to write user credential file: ", err)
+	}
+
+	defer f.Close()
+
+	fileMap = make(map[string]string)
+
+	fileMap["header"] = "id,username,password,cod,account,mode"
+	fileMap["data1"] = user1CompId + "," + user1Username + "," + user1Password + "," + "true" + "," + user1CompId + "," + "3"
+
+	for line := range fileMap {
+		fmt.Println("(buildFIXConf) print line to file: ", credentialFilePath, " -> ", fileMap[line])
+		fmt.Fprintln(f, fileMap[line])
+	}
+
+	fmt.Println("(buildFIXConf) done writing: ", credentialFilePath)
+
+}
+
+func executeFIXorderRequest(orderData map[string]string, mode string) (o map[int]string, e error) {
+
+	// java -jar target/fix-client-1.0-SNAPSHOT.jar -c config/config.properties -u config/users.csv -i config/instruments.csv -t both
+
+	arg1 := "java"
+	arg2 := "-jar"
+	arg3 := toolJarPath //"target/fix-client-1.0-SNAPSHOT.jar"
+	arg4 := "-c"
+	arg5 := configFilePath
+	arg6 := "-u"
+	arg7 := credentialFilePath
+	arg8 := "-i"
+	arg9 := instrumentFilePath
+	arg10 := "-t"
+	arg11 := mode
+
+	cmd := exec.Command(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11)
+
+	fmt.Println("(executeFIXorderRequest) BEGIN getting stdout from command ...")
+
+	//stream command output continuously
+	stdout, _ := cmd.StdoutPipe()
+	cmd.Start()
+	scanner := bufio.NewScanner(stdout)
+	//scanner.Split(bufio.ScanWords)
+
+	//for instrumentation
+	lc := 0
+	read := 0 //read flag
+	dataBloc := make(map[int]string)
+
+	//command content map ...
+	outputData := make(map[int]string)
+
+	for scanner.Scan() {
+
+		m := scanner.Text()
+		fmt.Println(m)
+		fmt.Println("(executeFIXorderRequest) -> (", lc, ") ", m)
+		outputData[lc] = m
+		lc++
+
+		//Begin instrumentation configuration: extract metrics and surface for prometheus
+		if strings.Contains(m, "Stat Update") && read != 1 {
+
+			read = 1
+			fmt.Println("(executeFIXorderRequest) begin reading data bloc -> ", m)
+			dataBloc[lc] = m
+
+		}
+
+		if read == 1 {
+
+			dataBloc[lc] = m
+			lc++
+
+		}
+
+		if strings.Contains(m, "MDIncrRefresh") && read == 1 {
+
+			read = 0
+			fmt.Println("(executeFIXorderRequest) end reading data bloc -> ", m)
+
+			dataBloc[lc] = m
+
+			//dump the bloc
+			fmt.Println("*** DUMP DATA BLOC *** ")
+
+			for item := range dataBloc {
+				fmt.Println(item, " => ", dataBloc[item])
+				s := strings.Split(dataBloc[item], ":")
+
+				dataKey := s[0]
+				dataVal := s[1]
+
+				fmt.Println("(executeFIXorderRequest) ", dataKey, " => ", dataVal)
+				extractMetrics(dataKey, dataVal)
+
+			}
+
+			lc = 0
+
+			dataBloc = make(map[int]string)
+
+		}
+
+		//end instrumentation configuration
+
+		if lc >= 1000000 {
+			fmt.Println("(executeFIXorderRequest) got enough feedback. stopping fix test ...")
+			break
+		}
+
+		fmt.Println("(executeFIXorderRequest) still in loop")
+
+	}
+
+	fmt.Println("(executeFIXorderRequest) I have exited the command loop!")
+
+	//cmd.Wait()
+
+	//End of streaming
+	fmt.Println("(executeFIXorderRequest) DONE getting stderr from command ...")
+
+	return outputData, nil
+
+}
+
+func processData(o map[int]string) {
+	for l := range o {
+		fmt.Println("(processData) -> ", o[l])
+	}
+}
+
+func extractMetrics(dataKey string, dataVal string) {
+
+	metricMap, metricMapKey, e := getMetricHeader(dataKey, dataVal) //create the metric header
+
+	if e != nil {
+
+		fmt.Println("(extractMetrics) no metrics here.")
+
+	} else {
+
+		fmt.Println("(extractMetrics) will analyse dimension: ", metricMapKey, " -> ", metricMap)
+		//update the metric counters using `metricMap`: update the golang metric counter function for each metric
+		updateMetrics(metricMapKey, metricMap)
+	}
+
+}
+
+func updateMetrics(metricMapKey string, metricMap map[string]string) {
+
+	//update the intrumentation counters to surface metrics for golang
+	fmt.Println("(updateMetrics) analysing dimension: ", metricMapKey, " -> ", metricMap)
+
+	//For reference:
+	/*
+		datakeyMap["CancelOrder delays(ms)"] = "CancelOrderdelaysms"
+		datakeyMap["Incoming Message Rates (per second)"] = "IncomingMessageRatesps"
+		datakeyMap["Incoming message counts"] = "Incomingmessagecounts"
+		datakeyMap["MDFullRefresh delays(ms)"] = "MDFullRefreshdelaysms"
+		datakeyMap["MDIncrRefresh delays(ms)"] = "MDIncrRefreshdelaysms"
+		datakeyMap["NewOrder delays(ms)"] = "NewOrderdelaysms"
+		datakeyMap["Outgoing Message Counts"] = "OutgoingMessageCounts"
+		datakeyMap["Outgoing Message Rates (per second)"] = "OutgoingMessageRatesps"
+	*/
+
+	fmt.Println("(updateMetrics) updating metrics class: ", metricMapKey, " -> ", metricMap)
+
+	if metricMapKey == "CancelOrderdelaysms" {
+
+		fmt.Println("(updateMetrics) found dimension: ", metricMapKey, " == ", "CancelOrderdelaysms")
+
+		//map[CancelOrderdelaysmsAvg:0 CancelOrderdelaysmsMax:0 CancelOrderdelaysmsMin:0]
+
+		CancelOrderdelaysmsval := metricMap["CancelOrderdelaysmsAvg"]
+		t, _ := strconv.ParseFloat(CancelOrderdelaysmsval, 32)
+
+		fmt.Println("(updateMetrics) converting ", metricMapKey, ": ", CancelOrderdelaysmsval, " -> ", t)
+
+		if s, err := strconv.ParseFloat(CancelOrderdelaysmsval, 32); err == nil {
+
+			go func() {
+				CancelOrderdelaysms.Set(s)
+				time.Sleep(2 * time.Second)
+			}()
+
+		} else {
+			fmt.Println("(updateMetrics) failed to convert metric: CancelOrderdelaysmsval -> ", CancelOrderdelaysmsval, err)
+		}
+
+	}
+
+	if metricMapKey == "Incomingmessagecounts" {
+
+		fmt.Println("(updateMetrics) found dimension: ", metricMapKey, " == ", "Incomingmessagecounts")
+
+		//map[IncomingmessagecountsCancelReject:0 IncomingmessagecountsExecReport:0 IncomingmessagecountsMDIncrUpdate:0]
+		IncomingmessagecountsMDIncrUpdateval := metricMap["IncomingmessagecountsMDIncrUpdate"]
+		IncomingmessagecountsExecReportval := metricMap["IncomingmessagecountsExecReport"]
+		IncomingmessagecountsCancelRejectval := metricMap["IncomingmessagecountsCancelReject"]
+
+		t, _ := strconv.ParseFloat(IncomingmessagecountsMDIncrUpdateval, 32)
+		fmt.Println("(updateMetrics) converting ", metricMapKey, ": ", IncomingmessagecountsMDIncrUpdateval, " -> ", t)
+
+		t, _ = strconv.ParseFloat(IncomingmessagecountsExecReportval, 32)
+		fmt.Println("(updateMetrics) converting ", metricMapKey, ": ", IncomingmessagecountsExecReportval, " -> ", t)
+
+		t, _ = strconv.ParseFloat(IncomingmessagecountsCancelRejectval, 32)
+		fmt.Println("(updateMetrics) converting ", metricMapKey, ": ", IncomingmessagecountsCancelRejectval, " -> ", t)
+
+		if s, err := strconv.ParseFloat(IncomingmessagecountsMDIncrUpdateval, 64); err == nil {
+
+			fmt.Println("(updateMetrics) Setting IncomingmessagecountsMDIncrUpdate -> ", s)
+
+			go func() {
+				IncomingmessagecountsMDIncrUpdate.Set(s)
+				time.Sleep(2 * time.Second)
+			}()
+
+		} else {
+			fmt.Println("(updateMetrics) failed to convert metric: IncomingmessagecountsMDIncrUpdate -> ", IncomingmessagecountsMDIncrUpdateval, err)
+		}
+
+		if s, err := strconv.ParseFloat(IncomingmessagecountsExecReportval, 32); err == nil {
+
+			fmt.Println("(updateMetrics) Setting IncomingmessagecountsExecReportval -> ", s)
+
+			go func() {
+				IncomingmessagecountsExecReport.Set(s)
+				time.Sleep(2 * time.Second)
+			}()
+
+		} else {
+			fmt.Println("(updateMetrics) failed to convert metric: IncomingmessagecountsExecReport -> ", IncomingmessagecountsExecReportval, err)
+		}
+
+		if s, err := strconv.ParseFloat(IncomingmessagecountsCancelRejectval, 32); err == nil {
+
+			fmt.Println("(updateMetrics) Setting IncomingmessagecountsCancelRejectval -> ", s)
+
+			go func() {
+				IncomingmessagecountsCancelReject.Set(s)
+				time.Sleep(2 * time.Second)
+			}()
+
+		} else {
+			fmt.Println("(updateMetrics) failed to convert metric: IncomingmessagecountsMDIncrUpdate -> ", IncomingmessagecountsMDIncrUpdateval, err)
+		}
+
+	}
+
+	if metricMapKey == "IncomingMessageRatesps" {
+
+		fmt.Println("(updateMetrics) found dimension: ", metricMapKey, " == ", "IncomingMessageRatespsCancelReject")
+
+		//map[IncomingMessageRatespsCancelReject:0.0 IncomingMessageRatespsExecReport:0.0 IncomingMessageRatespsMDIncrUpdate:0.0 IncomingMessageRatespsmdIncrCount:0]
+		IncomingMessageRatespsCancelRejectval := metricMap["IncomingMessageRatespsCancelReject"]
+		IncomingMessageRatespsExecReportval := metricMap["IncomingMessageRatespsExecReport"]
+		IncomingMessageRatespsMDIncrUpdateval := metricMap["IncomingMessageRatespsMDIncrUpdate"]
+		IncomingMessageRatespsmdIncrCountval := metricMap["IncomingMessageRatespsmdIncrCount"]
+
+		t, _ := strconv.ParseFloat(IncomingMessageRatespsCancelRejectval, 32)
+		fmt.Println("(updateMetrics) converting ", metricMapKey, ": ", IncomingMessageRatespsCancelRejectval, " -> ", t)
+		t, _ = strconv.ParseFloat(IncomingMessageRatespsExecReportval, 32)
+		fmt.Println("(updateMetrics) converting ", metricMapKey, ": ", IncomingMessageRatespsExecReportval, " -> ", t)
+		t, _ = strconv.ParseFloat(IncomingMessageRatespsMDIncrUpdateval, 32)
+		fmt.Println("(updateMetrics) converting ", metricMapKey, ": ", IncomingMessageRatespsMDIncrUpdateval, " -> ", t)
+		t, _ = strconv.ParseFloat(IncomingMessageRatespsmdIncrCountval, 32)
+		fmt.Println("(updateMetrics) converting ", metricMapKey, ": ", IncomingMessageRatespsmdIncrCountval, " -> ", t)
+
+		if s, err := strconv.ParseFloat(IncomingMessageRatespsCancelRejectval, 32); err == nil {
+
+			fmt.Println("(updateMetrics) Setting IncomingMessageRatespsCancelReject -> ", s)
+
+			go func() {
+				IncomingMessageRatespsCancelReject.Set(s)
+				time.Sleep(2 * time.Second)
+			}()
+
+		} else {
+			fmt.Println("(updateMetrics) failed to convert metric: IncomingMessageRatespsCancelReject -> ", IncomingMessageRatespsCancelRejectval, err)
+		}
+
+		if s, err := strconv.ParseFloat(IncomingMessageRatespsExecReportval, 32); err == nil {
+
+			fmt.Println("(updateMetrics) Setting IncomingMessageRatespsExecReportval -> ", s)
+
+			go func() {
+				IncomingMessageRatespsExecReport.Set(s)
+				time.Sleep(2 * time.Second)
+			}()
+
+		} else {
+			fmt.Println("(updateMetrics) failed to convert metric: IncomingMessageRatespsExecReport -> ", IncomingMessageRatespsExecReportval, err)
+		}
+
+		if s, err := strconv.ParseFloat(IncomingMessageRatespsMDIncrUpdateval, 32); err == nil {
+
+			fmt.Println("(updateMetrics) Setting IncomingMessageRatespsMDIncrUpdateval -> ", s)
+
+			go func() {
+				IncomingMessageRatespsMDIncrUpdate.Set(s)
+				time.Sleep(2 * time.Second)
+			}()
+
+		} else {
+			fmt.Println("(updateMetrics) failed to convert metric: IncomingMessageRatespsMDIncrUpdate -> ", IncomingMessageRatespsMDIncrUpdateval, err)
+		}
+
+		if s, err := strconv.ParseFloat(IncomingMessageRatespsmdIncrCountval, 32); err == nil {
+
+			fmt.Println("(updateMetrics) Setting IncomingMessageRatespsmdIncrCountval -> ", s)
+
+			go func() {
+				IncomingMessageRatespsmdIncrCount.Set(s)
+				time.Sleep(2 * time.Second)
+			}()
+
+		} else {
+			fmt.Println("(updateMetrics) failed to convert metric: IncomingMessageRatespsmdIncrCountval -> ", IncomingMessageRatespsmdIncrCountval, err)
+		}
+
+	}
+
+	if metricMapKey == "OutgoingMessageCounts" {
+
+		fmt.Println("(updateMetrics) found dimension: ", metricMapKey, " == ", "OutgoingMessageCounts")
+
+		//OutgoingMessageCounts  ->  map[OutgoingMessageCountsCancel:0 OutgoingMessageCountsNew:1725 OutgoingMessageCountsTotal:1725 OutgoingMessageCountsTrade:0]
+
+		OutgoingMessageCountsCancelval := metricMap["OutgoingMessageCountsCancel"]
+		OutgoingMessageCountsNewval := metricMap["OutgoingMessageCountsNew"]
+		OutgoingMessageCountsTotalval := metricMap["OutgoingMessageCountsTotal"]
+		OutgoingMessageCountsTradeval := metricMap["OutgoingMessageCountsTrade"]
+
+		t, _ := strconv.ParseFloat(OutgoingMessageCountsCancelval, 64)
+		fmt.Println("(updateMetrics) converting ", metricMapKey, ": ", OutgoingMessageCountsCancelval, " -> ", t)
+
+		t, _ = strconv.ParseFloat(OutgoingMessageCountsNewval, 64)
+		fmt.Println("(updateMetrics) converting ", metricMapKey, ": ", OutgoingMessageCountsNewval, " -> ", t)
+
+		t, _ = strconv.ParseFloat(OutgoingMessageCountsTotalval, 64)
+		fmt.Println("(updateMetrics) converting ", metricMapKey, ": ", OutgoingMessageCountsTotalval, " -> ", t)
+
+		t, _ = strconv.ParseFloat(OutgoingMessageCountsTradeval, 64)
+		fmt.Println("(updateMetrics) converting ", metricMapKey, ": ", OutgoingMessageCountsTradeval, " -> ", t)
+
+		if s, err := strconv.ParseFloat(OutgoingMessageCountsCancelval, 64); err == nil {
+
+			fmt.Println("(updateMetrics) Setting OutgoingMessageCountsCancelval -> ", s)
+
+			go func() {
+				OutgoingMessageCountsCancel.Set(s)
+				time.Sleep(2 * time.Second)
+			}()
+
+		} else {
+			fmt.Println("(updateMetrics) failed to convert metric: OutgoingMessageCountsCancel -> ", OutgoingMessageCountsCancelval, err)
+		}
+
+		if s, err := strconv.ParseFloat(OutgoingMessageCountsNewval, 64); err == nil {
+
+			fmt.Println("(updateMetrics) Setting OutgoingMessageCountsNewval -> ", s)
+
+			go func() {
+				OutgoingMessageCountsNew.Set(s)
+				time.Sleep(2 * time.Second)
+			}()
+
+		} else {
+			fmt.Println("(updateMetrics) failed to convert metric: OutgoingMessageCountsNew -> ", OutgoingMessageCountsNewval, err)
+		}
+
+		if s, err := strconv.ParseFloat(OutgoingMessageCountsTotalval, 64); err == nil {
+
+			fmt.Println("(updateMetrics) Setting OutgoingMessageCountsTotalval -> ", s)
+
+			go func() {
+				OutgoingMessageCountsTotal.Set(s)
+				time.Sleep(2 * time.Second)
+			}()
+
+		} else {
+			fmt.Println("(updateMetrics) failed to convert metric: OutgoingMessageCountsTotal -> ", OutgoingMessageCountsTotalval, err)
+		}
+
+		if s, err := strconv.ParseFloat(OutgoingMessageCountsTradeval, 64); err == nil {
+
+			fmt.Println("(updateMetrics) Setting OutgoingMessageCountsTradeval -> ", s)
+
+			go func() {
+				OutgoingMessageCountsTrade.Set(s)
+				time.Sleep(2 * time.Second)
+			}()
+
+		} else {
+			fmt.Println("(updateMetrics) failed to convert metric: OutgoingMessageCountsTrade -> ", OutgoingMessageCountsTradeval, err)
+		}
+
+	}
+
+	if metricMapKey == "OutgoingMessageRatesps" {
+
+		fmt.Println("(updateMetrics) found dimension: ", metricMapKey, " == ", "OutgoingMessageRatesps")
+
+		//map[OutgoingMessageRatespsCancel:0.0 OutgoingMessageRatespsNew:0.8 OutgoingMessageRatespsTotalMsgRate:0.8 OutgoingMessageRatespsTrades:0.0]
+		OutgoingMessageRatespsCancelval := metricMap["OutgoingMessageRatespsCancel"]
+
+		OutgoingMessageRatespsNewval := metricMap["OutgoingMessageRatespsNew"]
+		OutgoingMessageRatespsTotalMsgRateval := metricMap["OutgoingMessageRatespsTotalMsgRate"]
+		OutgoingMessageRatespsTradesval := metricMap["OutgoingMessageRatespsTrades"]
+
+		t, _ := strconv.ParseFloat(OutgoingMessageRatespsCancelval, 64)
+		fmt.Println("(updateMetrics) converting ", metricMapKey, ": ", OutgoingMessageRatespsCancelval, " -> ", t)
+		t, _ = strconv.ParseFloat(OutgoingMessageRatespsNewval, 64)
+		fmt.Println("(updateMetrics) converting ", metricMapKey, ": ", OutgoingMessageRatespsNewval, " -> ", t)
+		t, _ = strconv.ParseFloat(OutgoingMessageRatespsTotalMsgRateval, 64)
+		fmt.Println("(updateMetrics) converting ", metricMapKey, ": ", OutgoingMessageRatespsTotalMsgRateval, " -> ", t)
+		t, _ = strconv.ParseFloat(OutgoingMessageRatespsTradesval, 64)
+		fmt.Println("(updateMetrics) converting ", metricMapKey, ": ", OutgoingMessageRatespsTradesval, " -> ", t)
+
+		if s, err := strconv.ParseFloat(OutgoingMessageRatespsCancelval, 64); err == nil {
+
+			fmt.Println("(updateMetrics) Setting OutgoingMessageRatespsCancel -> ", s)
+
+			go func() {
+				OutgoingMessageRatespsCancel.Set(s)
+				time.Sleep(2 * time.Second)
+			}()
+
+		} else {
+			fmt.Println("(updateMetrics) failed to convert metric: OutgoingMessageRatespsCancel -> ", OutgoingMessageRatespsCancelval, err)
+		}
+
+		if s, err := strconv.ParseFloat(OutgoingMessageRatespsNewval, 64); err == nil {
+
+			fmt.Println("(updateMetrics) Setting OutgoingMessageRatespsNewval -> ", s)
+
+			go func() {
+				OutgoingMessageRatespsNew.Set(s)
+				time.Sleep(2 * time.Second)
+			}()
+
+		} else {
+			fmt.Println("(updateMetrics) failed to convert metric: OutgoingMessageRatespsNew -> ", OutgoingMessageRatespsNewval, err)
+		}
+
+		if s, err := strconv.ParseFloat(OutgoingMessageRatespsTotalMsgRateval, 64); err == nil {
+
+			fmt.Println("(updateMetrics) Setting OutgoingMessageRatespsTotalMsgRateval -> ", s)
+
+			go func() {
+				OutgoingMessageRatespsTotalMsgRate.Set(s)
+				time.Sleep(2 * time.Second)
+			}()
+
+		} else {
+			fmt.Println("(updateMetrics) failed to convert metric: OutgoingMessageRatespsTotalMsgRate -> ", OutgoingMessageRatespsTotalMsgRateval, err)
+		}
+
+		//OutgoingMessageRatespsTradesval
+		if s, err := strconv.ParseFloat(OutgoingMessageRatespsTradesval, 64); err == nil {
+
+			fmt.Println("(updateMetrics) Setting OutgoingMessageRatespsTradesval -> ", s)
+
+			go func() {
+				OutgoingMessageRatespsTrades.Set(s)
+				time.Sleep(2 * time.Second)
+			}()
+
+		} else {
+			fmt.Println("(updateMetrics) failed to convert metric: OutgoingMessageRatespsTradesval -> ", OutgoingMessageRatespsTradesval, err)
+		}
+
+	}
+
+	//NewOrderdelaysms
+	if metricMapKey == "NewOrderdelaysms" {
+
+		fmt.Println("(updateMetrics) found dimension: ", metricMapKey, " == ", "NewOrderdelaysms")
+
+		//NewOrderdelaysms  ->  map[NewOrderdelaysmsAvg:0 NewOrderdelaysmsMax:0 NewOrderdelaysmsMin:0]
+		NewOrderdelaysmsval := metricMap["NewOrderdelaysmsAvg"]
+
+		t, _ := strconv.ParseFloat(NewOrderdelaysmsval, 64)
+		fmt.Println("(updateMetrics) converting ", metricMapKey, ": ", NewOrderdelaysmsval, " -> ", t)
+
+		if s, err := strconv.ParseFloat(NewOrderdelaysmsval, 32); err == nil {
+
+			fmt.Println("(updateMetrics) Setting NewOrderdelaysmsAvg -> ", s)
+
+			go func() {
+				NewOrderdelaysms.Set(s)
+				time.Sleep(2 * time.Second)
+			}()
+
+		} else {
+			fmt.Println("(updateMetrics) failed to convert metric: NewOrderdelaysmsAvg -> ", NewOrderdelaysmsval, err)
+		}
+
+	}
+
+	//MDFullRefreshdelaysms
+	if metricMapKey == "MDFullRefreshdelaysms" {
+		fmt.Println("(updateMetrics) found dimension: ", metricMapKey, " == ", "MDFullRefreshdelaysms")
+		//MDFullRefreshdelaysms  ->  map[MDFullRefreshdelaysmsAvg:0 MDFullRefreshdelaysmsMax:0 MDFullRefreshdelaysmsMin:0]
+		MDFullRefreshdelaysmsval := metricMap["MDIncrRefreshdelaysmsAvg"]
+		t, _ := strconv.ParseFloat(MDFullRefreshdelaysmsval, 32)
+		fmt.Println("(updateMetrics) converting ", metricMapKey, ": ", MDFullRefreshdelaysmsval, " -> ", t)
+		if s, err := strconv.ParseFloat(MDFullRefreshdelaysmsval, 32); err == nil {
+			fmt.Println("(updateMetrics) Setting MDFullRefreshdelaysmsAvg -> ", s)
+
+			go func() {
+				MDFullRefreshdelaysms.Set(s)
+				time.Sleep(2 * time.Second)
+			}()
+
+		} else {
+
+			fmt.Println("(updateMetrics) failed to convert metric: MDFullRefreshdelaysmsAvg -> ", MDFullRefreshdelaysmsval, err)
+
+		}
+
+	}
+
+	//MDIncrRefreshdelaysms
+	if metricMapKey == "MDIncrRefreshdelaysms" {
+
+		fmt.Println("(updateMetrics) found dimension: ", metricMapKey, " == ", "MDIncrRefreshdelaysms")
+
+		// MDIncrRefreshdelaysms  ->  map[MDIncrRefreshdelaysmsAvg:0 MDIncrRefreshdelaysmsMax:0 MDIncrRefreshdelaysmsMin:0]
+		MDIncrRefreshdelaysmsval := metricMap["MDIncrRefreshdelaysmsAvg"]
+		t, _ := strconv.ParseFloat(MDIncrRefreshdelaysmsval, 32)
+		fmt.Println("(updateMetrics) converting ", metricMapKey, ": ", MDIncrRefreshdelaysmsval, " -> ", t)
+		if s, err := strconv.ParseFloat(MDIncrRefreshdelaysmsval, 32); err == nil {
+			fmt.Println("(updateMetrics) Setting MDIncrRefreshdelaysmsval -> ", s)
+
+			go func() {
+				MDFullRefreshdelaysms.Set(s)
+				time.Sleep(2 * time.Second)
+			}()
+
+		} else {
+			fmt.Println("(updateMetrics) failed to convert metric: MDIncrRefreshdelaysmsAvg -> ", MDIncrRefreshdelaysmsval, err)
+		}
+
+	}
+
+}
+
+func getMetricHeader(dataKey string, dataVal string) (metrics map[string]string, dk string, e error) {
+
+	fmt.Println("(getMetricHeader) about to process: ", dataKey, " -> ", dataVal)
+
+	if !strings.Contains(dataKey, "DEBUG") {
+
+		metrics = make(map[string]string)
+		dataKey = lookupDataKeyMapping(dataKey)
+		//create the metric header
+		dataValParts := strings.Split(dataVal, ",")
+		for p := range dataValParts {
+			metricParts := strings.Split(dataValParts[p], "=")
+			if len(metricParts) == 2 {
+				metricKey := dataKey + strings.TrimSpace(metricParts[0])
+				//fmt.Println("(getMetricHeader) metric: ", metricKey, " = ", metricParts[1])
+				metrics[metricKey] = metricParts[1]
+			}
+		}
+
+		e = nil //be explicit
+
+	} else {
+		e = errors.New("nullmetrics")
+	}
+
+	//don't accept empty metrics
+	if len(metrics) == 0 {
+
+		fmt.Println("(getMetricHeader) zero metrics length: ", len(metrics))
+		e = errors.New("nullmetrics")
+
+	}
+
+	return metrics, dataKey, e
+}
+
+func lookupDataKeyMapping(dimension string) (dk string) {
+
+	//lookup the dimension name based on it's free text description from the eFIX tool output format
+	//NOTE: Any change to the FIX perf tool output format will break this!!
+
+	dimension = strings.TrimSpace(dimension)
+
+	dk = datakeyMap[dimension]
+
+	//fmt.Println("(lookupDataKeyMapping) looking up: ->", dimension, "<- got ", dk)
+
+	return dk
+}
+
 func main() {
 
 	username, password, userID := lookupRandomCredentials()
+
 	fmt.Println("(main) looked up credentials for login: ", username, password, userID)
 
 	//login to the Trading API (assuming a single user for now)
@@ -1163,19 +1998,15 @@ func main() {
 
 	fmt.Println("(main) running this worker with user ID: ", credentials["userid"], " and account number: ", credentials["account"])
 
-	//Connect to Pulsar
-	client, err := pulsar.NewClient(
-		pulsar.ClientOptions{
-			URL:               pulsarBrokerURL,
-			OperationTimeout:  30 * time.Second,
-			ConnectionTimeout: 30 * time.Second,
-		})
-
-	if err != nil {
-		log.Fatalf("(main) Could not instantiate Pulsar client: %v", err)
-	}
-
-	defer client.Close()
+	//instrumentation metric lookup map
+	datakeyMap["Outgoing Message Rates (per second)"] = "OutgoingMessageRatesps"
+	datakeyMap["Incoming Message Rates (per second)"] = "IncomingMessageRatesps"
+	datakeyMap["CancelOrder delays(ms)"] = "CancelOrderdelaysms"
+	datakeyMap["Incoming message counts"] = "Incomingmessagecounts"
+	datakeyMap["MDFullRefresh delays(ms)"] = "MDFullRefreshdelaysms"
+	datakeyMap["MDIncrRefresh delays(ms)"] = "MDIncrRefreshdelaysms"
+	datakeyMap["NewOrder delays(ms)"] = "NewOrderdelaysms"
+	datakeyMap["Outgoing Message Counts"] = "OutgoingMessageCounts"
 
 	go func() {
 		//metrics endpoint
@@ -1189,6 +2020,34 @@ func main() {
 		}
 
 	}()
+
+	//register metric
+	initMetrics()
+
+	//Build FIX tool configuration files
+	buildFIXConf(credentials)
+
+	orderData := make(map[string]string)
+
+	//Test execute FIX tool
+	outputData, _ := executeFIXorderRequest(orderData, FIXTestMode)
+
+	//process the resulting statistics
+	processData(outputData)
+
+	//Connect to Pulsar
+	client, err := pulsar.NewClient(
+		pulsar.ClientOptions{
+			URL:               pulsarBrokerURL,
+			OperationTimeout:  30 * time.Second,
+			ConnectionTimeout: 30 * time.Second,
+		})
+
+	if err != nil {
+		log.Fatalf("(main) Could not instantiate Pulsar client: %v", err)
+	}
+
+	defer client.Close()
 
 	//using a simple, single threaded loop - sequential consumption
 	fmt.Println("(main) contemplating running main worker loop ...")

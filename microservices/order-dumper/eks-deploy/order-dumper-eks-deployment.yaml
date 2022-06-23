@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
       - name: order-dumper
-        image: archbungle/order-dumper:0.0.41d27
+        image: archbungle/order-dumper:0.0.41d28
         imagePullPolicy: IfNotPresent 
         securityContext:
           privileged: true
@@ -40,7 +40,7 @@ spec:
         - name: NUM_WORKERS
           value: "1"
         - name: KAFKA_SOURCE_BROKER_ADDRESS
-          value: "10.0.9.118"
+          value: "kafka1.dexp-pt.internal"
         - name: DEFAULT_REPLICA_MAX
           value: "10"
         - name: PULSAR_BROKER_SERVICE_ADDRESS
@@ -91,8 +91,6 @@ spec:
           value: "1100"
         - name: GRAFANA_DASHBOARD_URL
           value: "http://13.67.56.239/d/AtqYwRA7k/transaction-matching-system-load-metrics?orgId=1" 
-        - name: ADMIN_PASSWORD
-          value: "somethingrandom"
         ports:
           - name: tcp-80
             containerPort: 80

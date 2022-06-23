@@ -32,6 +32,7 @@ var replayServiceAddress string = os.Getenv("REPLAY_SERVICE_ADDRESS")           
 var orderDumperServiceAddress string = os.Getenv("ORDER_DUMPER_SERVICE_ADDRESS") //for the service that dumps the last week's order from kafkap topic api0001
 var dumpTimeInterval, _ = strconv.Atoi(os.Getenv("ORDER_DUMP_TIME_INTERVAL"))    //hours into the past to dump orders in kafka from
 var serialLoadTestService = os.Getenv("SERIAL_LOAD_TEST_SERVICE")                //SERIAL_LOAD_TEST_SERVICE
+var fixPerfTestService = os.Getenv("FIX_PERFORMANCE_TEST_SERVICE")               //kubernetes service name of the fix performance testing service (kubectl get deployments| egrep whatever)
 
 //pulsar connection details
 var brokerServiceAddress = os.Getenv("PULSAR_BROKER_SERVICE_ADDRESS") // e.g "pulsar://pulsar-mini-broker.pulsar.svc.cluster.local:6650"
@@ -952,6 +953,48 @@ func (a adminPortal) selectionHandler(w http.ResponseWriter, r *http.Request) {
 
 	}
 
+	if selection[parts[0]] == "LoadFIXPerfTest" {
+
+		//trigger the serial load test service, which loads trading Orders in the order the were
+		//originally created fand dumped from the kafka queue ...
+
+		//User can select the start sequence file name and end
+		fix_orders_rate := strings.Join(r.Form["fix_orders_rate"], " ")
+		fix_orders_new_percentage := strings.Join(r.Form["fix_orders_new_percentage"], " ")
+		fix_orders_matching_percentage := strings.Join(r.Form["fix_orders_matching_percentage"], " ")
+		fix_client_replicas := strings.Join(r.Form["fix_client_replicas"], " ")
+
+		w.Write([]byte("<html><h1>Executing FIX performance load test ... </h1></html>"))
+
+		w.Write([]byte("<html style=\"font-family:verdana;\">fix_orders_rate: " + fix_orders_rate + "<br></html>"))
+		w.Write([]byte("<html style=\"font-family:verdana;\">fix_orders_new_percentage: " + fix_orders_new_percentage + "<br></html>"))
+		w.Write([]byte("<html style=\"font-family:verdana;\">fix_orders_matching_percentage: " + fix_orders_matching_percentage + "<br></html>"))
+		w.Write([]byte("<html style=\"font-family:verdana;\">fix_client_replicas: " + fix_client_replicas + "<br></html>"))
+
+		fixOrdersRate, _ := strconv.Atoi(fix_orders_rate)
+		fixOrdersNewPercentage, _ := strconv.Atoi(fix_orders_new_percentage)
+		fixOrdersMatchingPercentage, _ := strconv.Atoi(fix_orders_matching_percentage)
+		fixClientReplicas, _ := strconv.Atoi(fix_client_replicas)
+
+		status := "null"
+
+		w.Write([]byte("<html><h1>Resetting FIX load generator and starting performance test </h1></html>"))
+
+		scaleMax = 10 //VARIABLIZE THIS PLEASE!
+
+		configStatus := configureFIXtest(fixOrdersRate, fixOrdersNewPercentage, fixOrdersMatchingPercentage, fixClientReplicas)
+
+		if configStatus != nil {
+			w.Write([]byte("<html> <br>FIX test config failed. please try again." + "</html>"))
+		}
+
+		status = restart_loading_services(fixPerfTestService, scaleMax, namespace, w, r) //restart the FIX LOAD TEST ...
+
+		w.Write([]byte("<html> <br>Restarted FIX load test cluster - " + status + "</html>"))
+		w.Write([]byte("<html> <br>FIX Performance test running in background ...</html>"))
+
+	}
+
 	//no matter what, always call the credential status refresh
 	//to make sure each management function call unlocks synthetic
 	//user credentials for use
@@ -966,6 +1009,14 @@ func (a adminPortal) selectionHandler(w http.ResponseWriter, r *http.Request) {
 	</body>
 	`
 	w.Write([]byte(html_content))
+}
+
+func configureFIXtest(fixOrdersRate int, fixOrdersNewPercentage int, fixOrdersMatchingPercentage int, fixClientReplicas int) (err error) {
+
+	fmt.Println("(configureFIXtest) got FIX perf test parameters: ", fixOrdersRate, fixOrdersNewPercentage, fixOrdersMatchingPercentage, fixClientReplicas)
+
+	return err
+
 }
 
 func (a adminPortal) handler(w http.ResponseWriter, r *http.Request) {
@@ -1006,6 +1057,15 @@ func (a adminPortal) handler(w http.ResponseWriter, r *http.Request) {
   <form action="/selected?param=RestartSerialLoadTest" method="post">
   <input type="submit" name="RestartSerialLoadTest" value="restart / reset SEQUENTIAL load test" style="padding:20px;">
   <br>
+  </form>
+
+  <form action="/selected?param=LoadFIXPerfTest" method="post"">
+  <input type="submit" name="LoadFIXPerfTest" value="run FIX performance tests" style="padding:20px;" style="font-family:verdana;"> 
+  <html style="font-family:verdana;">FIX_ORDERS_RATE (format: integer e.g "10"):</html><input type="text" name="fix_orders_rate" >
+  <html style="font-family:verdana;">FIX_ORDERS_NEW_PERCENTAGE (format: integer e.g "10"):</html><input type="text" name="fix_orders_new_percentage" >
+  <html style="font-family:verdana;">FIX_ORDERS_MATCHING_PERCENTAGE (format: integer e.g "10"):</html><input type="text" name="fix_orders_matching_percentage" >
+  <html style="font-family:verdana;">FIX_ORDERS_CANCEL_PERCENTAGE (format: 2022-06-04T15:49:43.000Z):</html><input type="text" name="fix_orders_cancel_percentage" >
+  <html style="font-family:verdana;">FIX_CLIENT_REPLICAS (format: 2022-06-04T15:49:43.000Z):</html><input type="text" name="fix_client_replicas" >
   </form>
 
   <form action="/selected?param=backupProcessedData" method="post">

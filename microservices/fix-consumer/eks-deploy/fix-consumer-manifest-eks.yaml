@@ -22,11 +22,51 @@ spec:
 #        agentpool: np003
       containers:
       - name: fxconsumer
-        image: archbungle/load-fxconsumer:pulsar-0.0.1d3
+        image: archbungle/load-fxconsumer:pulsar-0.0.5d37
         imagePullPolicy: IfNotPresent
         env:
+        - name: FIX_PERFORMANCE_TEST_SERVICE
+          value: "fxconsumer"
+        - name: FIXTOOL_TEST_MODE
+          value: "ord"
+        - name: FIXTOOL_CONF_FILE
+          value: "/app/fix-perf-tools/config/config.properties"
+        - name: FIXTOOL_CREDENTIAL_FILE
+          value: "/app/fix-perf-tools/config/users.csv"
+        - name: FIXTOOL_JAR_PATH
+          value: "/app/fix-perf-tools/target/fix-client-1.0-SNAPSHOT.jar"
+        - name: FIXTOOL_INSTRUMENT_PATH
+          value: "/app/fix-perf-tools/config/instruments.csv"
+        - name: FIX_ORDERS_RATE
+          value: "1000"
+        - name: FIX_ORDERS_NEW_PERCENTAGE
+          value: "50"
+        - name: FIX_ORDERS_MATCHING_PERCENTAGE
+          value: "0"
+        - name: FIX_ORDERS_CANCEL_PERCENTAGE
+          value: "50"
+        - name: STATS_PRINTING_RATE
+          value: "5"
+        - name: FIX_OM_TARGET_COMPID
+          value: "pt.fix-om.equos"
+        - name: FIX_OM_HOST_IP
+          value: "10.0.46.99"
+        - name: FIX_OM_HOST_PORT
+          value: "4802"
+        - name: FIX_MD_TARGET_COMPID
+          value: "testnet.fix-om.equos"
+        - name: FIX_MD_HOST_IP
+          value: "10.0.46.99"
+        - name: FIX_MD_HOST_PORT
+          value: "4802"
+        - name: USER1_USERNAME 
+          value: "test_eqonex_pt_22may16_indi_0lad@harakirimail.com"
+        - name: USER1_PASSWORD
+          value: "Diginextest@123"
+        - name: USER1_COMPID
+          value: "102283"    
         - name: API_BASE_URL
-          value: "trading-api.dexp-qa.com"
+          value: "trading-api.dexp-pt.com"
         - name: TRADING_API_PASSWORD
           value: "Eqonex@123456"
         - name: TRADING_API_USERNAME
@@ -35,8 +75,6 @@ spec:
           value: "test-1-traiano45"
         - name: BLOCKWAIT_ACK
           value: "1"
-        - name: TRADING_API_CLORID
-          value: "test-1-traiano45"
         - name: NUM_JOBS
           value: "1"
         - name: NUM_WORKERS
@@ -67,6 +105,14 @@ spec:
           value: "http://sink-service.ragnarok.svc.cluster.local/sink-orders"
         - name: PORT_NUMBER
           value: "80"
+        - name: REDIS_MASTER_ADDRESS
+          value: "ragnarok-redis-master.redis.svc.cluster.local:6379"
+        - name: REDIS_ALLOCATOR_NS_INDEX
+          value: "11"
+        - name: REDIS_REPLICA_ADDRESS
+          value: "ragnarok-redis-replicas.redis.svc.cluster.local:6379"
+        - name: REDIS_PASS
+          value: "Yj7Oe21iHz"
         ports:
           - name: tcp-80
             containerPort: 80

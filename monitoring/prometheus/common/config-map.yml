@@ -68,3 +68,6 @@ data:
           - targets: ['serialout-service.ragnarok.svc.cluster.local:80']
             labels:
               group: 'serialout-service'
+          - targets: ['fxconsumer-service.ragnarok.svc.cluster.local:80']
+            labels:
+              group: 'fxconsumer-service'
