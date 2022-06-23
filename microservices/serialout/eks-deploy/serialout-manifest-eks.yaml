@@ -1,0 +1,125 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: serialout
+  namespace: ragnarok
+spec:
+  selector:
+    matchLabels:
+      app: serialout
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0
+      maxUnavailable: 85%
+  template:
+    metadata:
+      labels:
+        app: serialout
+    spec:
+#      nodeSelector:
+#        agentpool: np003
+      containers:
+      - name: serialout
+        image: archbungle/serialout:pulsar-0.0.2d1
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: API_BASE_URL
+          value: "trading-api.dexp-pt.com"
+        - name: TRADING_API_PASSWORD
+          value: "Eqonex@123456"
+        - name: TRADING_API_USERNAME
+          value: "ngocdf1_qa_indi_7uxp@mailinator.com"
+        - name: CREDENTIALS_DB_ADDRESS
+          value: "14"
+        - name: TRADING_API_CLORID
+          value: "test-1-traiano45"
+        - name: BLOCKWAIT_ACK
+          value: "1"
+        - name: NUM_JOBS
+          value: "1"
+        - name: NUM_WORKERS
+          value: "1"
+        - name: CANCEL_BATCH_LIMIT
+          value: "10"
+        - name: CANCEL_ALL_THRESHOLD
+          value: "100"
+        - name: PULSAR_BROKER_SERVICE_ADDRESS
+          value: "pulsar://pulsar-broker.pulsar.svc.cluster.local:6650"
+        - name: PULSAR_CONSUMER_SUBSCRIPTION_NAME
+          value: "sub001"
+        - name: MESSAGE_TOPIC
+          value: "ragnarok/transactions/serialrequests"
+        - name: REDIS_MASTER_ADDRESS
+          value: "ragnarok-redis-master.redis.svc.cluster.local:6379"
+        - name: REDIS_ALLOCATOR_NS_INDEX
+          value: "11"
+        - name: REDIS_REPLICA_ADDRESS
+          value: "ragnarok-redis-replicas.redis.svc.cluster.local:6379"
+        - name: REDIS_PASS
+          value: "Yj7Oe21iHz"
+        - name: KAFKA_BROKER_SERVICE_ADDRESS
+          value: "kafka-cp-kafka.kafka.svc.cluster.local:9092"
+        - name: KAFKA_BROKER1_ADDRESS
+          value: "kafka-0.kafka-headless.kafka.svc.cluster.local:9092"
+        - name: KAFKA_BROKER2_ADDRESS
+          value: "kafka-1.kafka-headless.kafka.svc.cluster.local:9092"
+        - name: KAFKA_BROKER3_ADDRESS
+          value: "kafka-2.kafka-headless.kafka.svc.cluster.local:9092"
+        - name: KAFKA_BROKER4_ADDRESS
+          value: "kafka-3.kafka-headless.kafka.svc.cluster.local:9092"
+        - name: KAFKA_BROKER5_ADDRESS
+          value: "kafka-4.kafka-headless.kafka.svc.cluster.local:9092"
+        - name: KAFKA_BROKER6_ADDRESS
+          value: "kafka-5.kafka-headless.kafka.svc.cluster.local:9092"
+        - name: KAFKA_BROKER7_ADDRESS
+          value: "kafka-6.kafka-headless.kafka.svc.cluster.local:9092"
+        - name: KAFKA_BROKER8_ADDRESS
+          value: "kafka-7.kafka-headless.kafka.svc.cluster.local:9092"
+        - name: KAFKA_BROKER9_ADDRESS
+          value: "kafka-8.kafka-headless.kafka.svc.cluster.local:9092"
+        - name: KAFKA_BROKER10_ADDRESS
+          value: "kafka-9.kafka-headless.kafka.svc.cluster.local:9092"
+        - name: KAFKA_BROKER11_ADDRESS
+          value: "kafka-10.kafka-headless.kafka.svc.cluster.local:9092"
+        - name: KAFKA_BROKER12_ADDRESS
+          value: "kafka-11.kafka-headless.kafka.svc.cluster.local:9092"
+        - name: KAFKA_BROKER13_ADDRESS
+          value: "kafka-12.kafka-headless.kafka.svc.cluster.local:9092"
+        - name: KAFKA_BROKER14_ADDRESS
+          value: "kafka-13.kafka-headless.kafka.svc.cluster.local:9092"
+        - name: CONSUMER_GROUP
+          value: "cg001"
+        - name: CONSUMER_COMMIT_INTERVAL
+          value: "1"
+        - name: LOCAL_LOGFILE_PATH
+          value: "/applogs"
+        - name: DEADLETTER_TOPIC
+          value: "deadLetter"
+        - name: METRICS_TOPIC
+          value: "metrics"      
+        - name: TARGET_API_URL
+          value: "http://sink-service.ragnarok.svc.cluster.local/sink-orders"
+        - name: PORT_NUMBER
+          value: "80"
+        ports:
+          - name: tcp-80
+            containerPort: 80
+      imagePullSecrets:
+        - name: ragnarok
+---
+kind: Service
+apiVersion: v1
+metadata:
+  name: serialout-service
+  namespace: ragnarok
+spec:
+  type: NodePort
+  selector:
+    app: serialout
+  ports:
+    - name: tcp-80
+      port: 80
+      nodePort: 30091
+      protocol: TCP

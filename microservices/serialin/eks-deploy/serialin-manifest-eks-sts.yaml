@@ -1,0 +1,72 @@
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: serialin
+  namespace: ragnarok
+spec:
+  selector:
+    matchLabels:
+      app: serialin
+  replicas: 1
+  serviceName: serialin-service
+  template:
+    metadata:
+      labels:
+        app: serialin
+    spec:
+      containers:
+      - name: serialin
+        image: archbungle/serialin:pulsar-0.0.2
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: NUM_JOBS
+          value: "1"
+        - name: NUM_WORKERS
+          value: "1"
+        - name: PULSAR_BROKER_SERVICE_ADDRESS
+          value: "pulsar://pulsar-broker.pulsar.svc.cluster.local:6650"
+        - name: PULSAR_CONSUMER_SUBSCRIPTION_NAME
+          value: "sub003"
+        - name: DEBUG_ENABLE
+          value: "1"
+        - name: MESSAGE_TOPIC
+          value: "ragnarok/transactions/serialrequests"
+        - name: REDIS_MASTER_ADDRESS
+          value: "ragnarok-redis-master.redis.svc.cluster.local:6379"
+        - name: REDIS_ALLOCATOR_NS_INDEX
+          value: "12"
+        - name: REDIS_REPLICA_ADDRESS
+          value: "ragnarok-redis-replicas.redis.svc.cluster.local:6379"
+        - name: REDIS_PASS
+          value: "Yj7Oe21iHz"
+        - name: SEQUENCE_REPLAY_DB
+          value: "6"
+        - name: CONSUMER_GROUP
+          value: "cg003"
+        - name: DATA_SOURCE_DIRECTORY
+          value: "/datastore"
+        - name: DATA_OUT_DIRECTORY
+          value: "/processed"
+        - name: LOCAL_LOGFILE_PATH
+          value: "/applogs"
+        ports:
+          - name: tcp-80
+            containerPort: 80
+      imagePullSecrets:
+        - name: ragnarok
+---
+kind: Service
+apiVersion: v1
+metadata:
+  name: serialin-service
+  namespace: ragnarok
+spec:
+  type: NodePort
+  selector:
+    app: serialin
+  ports:
+    - name: tcp-80
+      port: 80
+      nodePort: 30089
+      protocol: TCP
