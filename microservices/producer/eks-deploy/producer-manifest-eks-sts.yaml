@@ -8,7 +8,7 @@ spec:
   selector:
     matchLabels:
       app: producer
-  replicas: 2
+  replicas: 10
   podManagementPolicy: "Parallel"
   serviceName: producer-service
   template:
