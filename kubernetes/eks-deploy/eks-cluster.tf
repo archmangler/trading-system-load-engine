@@ -31,7 +31,7 @@ module "eks" {
       min_size       = 6 
       max_size       = 12 
       desired_size   = 9
-      instance_types = ["t2.xlarge"]
+      instance_types = ["t3.xlarge"]
       disk_size      = 100
       capacity_type  = "ON_DEMAND"
       labels = {
