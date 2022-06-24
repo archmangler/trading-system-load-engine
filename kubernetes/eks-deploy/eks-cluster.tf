@@ -29,7 +29,7 @@ module "eks" {
   eks_managed_node_groups = {
     np001 = {
       min_size       = 1
-      max_size       = 3
+      max_size       = 11
       desired_size   = 2
       instance_types = ["t3.xlarge"]
       disk_size      = 100
@@ -42,7 +42,7 @@ module "eks" {
     }
     np002 = {
       min_size       = 1
-      max_size       = 3
+      max_size       = 11
       desired_size   = 2
       instance_types = ["t3.xlarge"]
       disk_size      = 50
@@ -55,7 +55,7 @@ module "eks" {
     }
     np003 = {
       min_size       = 1
-      max_size       = 3
+      max_size       = 11
       desired_size   = 2
       instance_types = ["t3.xlarge"]
       disk_size      = 50
@@ -68,7 +68,7 @@ module "eks" {
     }
     np004 = {
       min_size       = 1
-      max_size       = 3
+      max_size       = 11
       desired_size   = 2
       instance_types = ["t3.xlarge"]
       disk_size      = 50
@@ -81,7 +81,7 @@ module "eks" {
     }
     np005 = {
       min_size       = 1
-      max_size       = 3
+      max_size       = 11
       desired_size   = 2
       disk_size      = 50
       instance_types = ["t3.xlarge"]
