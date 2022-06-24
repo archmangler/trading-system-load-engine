@@ -21,7 +21,7 @@ module "eks" {
   # EKS Managed Node Group(s)
   eks_managed_node_group_defaults = {
     ami_type               = "AL2_x86_64"
-    disk_size              = 50
+    disk_size              = 100
     instance_types         = ["t2.medium"]
     vpc_security_group_ids = [aws_security_group.worker_group_mgmt_one.id, aws_security_group.worker_group_mgmt_two.id]
   }
@@ -45,7 +45,7 @@ module "eks" {
       max_size       = 3
       desired_size   = 2
       instance_types = ["t3.xlarge"]
-      disk_size      = 50
+      disk_size      = 100
       capacity_type  = "ON_DEMAND"
       labels = {
         Environment = "poc"
@@ -58,7 +58,7 @@ module "eks" {
       max_size       = 3
       desired_size   = 2
       instance_types = ["t3.xlarge"]
-      disk_size      = 50
+      disk_size      = 100
       capacity_type  = "ON_DEMAND"
       labels = {
         Environment = "poc"
@@ -71,7 +71,7 @@ module "eks" {
       max_size       = 3
       desired_size   = 2
       instance_types = ["t3.xlarge"]
-      disk_size      = 50
+      disk_size      = 100
       capacity_type  = "ON_DEMAND"
       labels = {
         Environment = "poc"
@@ -83,7 +83,7 @@ module "eks" {
       min_size       = 1
       max_size       = 3
       desired_size   = 2
-      disk_size      = 50
+      disk_size      = 100
       instance_types = ["t3.xlarge"]
       capacity_type  = "ON_DEMAND"
       labels = {
