@@ -2043,49 +2043,55 @@ func bootStrapOrderData(sequenceReplayDBindex int, msgStartTime string, msgStopT
 	fmt.Println("(bootStrapOrderData) streaming orders from " + msgStartTime + " to " + msgStopTime)
 
 	if err != nil {
-		fmt.Println("error connecting to order dumper service", orderDumperServiceAddress)
-	}
+		fmt.Println("(bootStrapOrderData) error connecting to order dumper service", orderDumperServiceAddress)
+	} else {
 
-	body, err := ioutil.ReadAll(resp.Body)
-
-	if err != nil {
-		fmt.Println("(bootStrapOrderData) error reading ingest status endpoint: ", orderDumperServiceAddress)
-	}
-
-	status := string(body)
-
-	fmt.Println("(bootStrapOrderData) triggered order dump start: ", status)
-
-	//	[x] 2. Wait until it's status "ok" (until /ingest-status/ is not `pending`)
-	//	  [x] 2.1. Poll the status endpoint ("API": curl /load-status/) pending|started|completed
-
-	for {
-
-		resp, err = http.Get(orderDumperServiceAddress + "/dumper-status")
+		body, err := ioutil.ReadAll(resp.Body)
 
 		if err != nil {
-			fmt.Println("(bootStrapOrderData) error getting order dumper status endpoint")
+			fmt.Println("(bootStrapOrderData) error reading ingest status endpoint: ", orderDumperServiceAddress)
 		}
 
-		body, err = ioutil.ReadAll(resp.Body)
+		status := string(body)
 
-		if err != nil {
-			fmt.Println("(bootStrapOrderData) error reading order dumper status response body")
-			break
+		fmt.Println("(bootStrapOrderData) triggered order dump start: ", status)
+
+		//	[x] 2. Wait until it's status "ok" (until /ingest-status/ is not `pending`)
+		//	  [x] 2.1. Poll the status endpoint ("API": curl /load-status/) pending|started|completed
+
+		for {
+
+			resp, err = http.Get(orderDumperServiceAddress + "/dumper-status")
+
+			if err != nil {
+				fmt.Println("(bootStrapOrderData) error getting order dumper status endpoint")
+			} else {
+
+				body, err = ioutil.ReadAll(resp.Body)
+
+				if err != nil {
+					fmt.Println("(bootStrapOrderData) error reading order dumper status response body")
+					break
+				} else {
+
+					status = string(body)
+
+					fmt.Println("(bootStrapOrderData) Getting order dumper service status: ", status)
+
+					if status == "done" {
+						fmt.Println("(bootStrapOrderData) finished order dumper input data: ", status)
+						break
+					} else {
+						fmt.Println("(bootStrapOrderData) downloading order data from kafka: ", status)
+					}
+
+				}
+
+			}
+
+			time.Sleep(5 * time.Second)
 		}
 
-		status = string(body)
-
-		fmt.Println("(bootStrapOrderData) Getting order dumper service status: ", status)
-
-		if status == "done" {
-			fmt.Println("(bootStrapOrderData) finished order dumper input data: ", status)
-			break
-		} else {
-			fmt.Println("(bootStrapOrderData) downloading order data from kafka: ", status)
-		}
-
-		time.Sleep(5 * time.Second)
 	}
 
 	//assign the new orders to worker (serial) or workers (concurrent)
