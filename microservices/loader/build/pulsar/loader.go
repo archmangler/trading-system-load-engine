@@ -2064,13 +2064,13 @@ func bootStrapOrderData(sequenceReplayDBindex int, msgStartTime string, msgStopT
 		resp, err = http.Get(orderDumperServiceAddress + "/dumper-status")
 
 		if err != nil {
-			fmt.Println("(bootStrapOrderData) error getting order dumper status endpoint: ", err)
+			fmt.Println("(bootStrapOrderData) error getting order dumper status endpoint")
 		}
 
 		body, err = ioutil.ReadAll(resp.Body)
 
 		if err != nil {
-			fmt.Println("(bootStrapOrderData) error reading order dumper status response body: ", err)
+			fmt.Println("(bootStrapOrderData) error reading order dumper status response body")
 			break
 		}
 
