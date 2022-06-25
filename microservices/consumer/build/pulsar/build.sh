@@ -11,13 +11,13 @@
 #repo_name="load-consumer"
 #base_cmd="docker build --tag"
 
-#registry_name="archbungle"
-#repo_name="load-consumer"
-#base_cmd="docker build --tag"
-
-registry_name="engeneon.jfrog.io/engeneon-docker"
+registry_name="archbungle"
 repo_name="load-consumer"
 base_cmd="docker build --tag"
+
+#registry_name="engeneon.jfrog.io/engeneon-docker"
+#repo_name="load-consumer"
+#base_cmd="docker build --tag"
 
 function build_image_local () {
   cmd="${base_cmd} ${image_name}:${image_tag} ."

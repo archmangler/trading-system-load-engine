@@ -1060,12 +1060,18 @@ func (a adminPortal) handler(w http.ResponseWriter, r *http.Request) {
   </form>
 
   <form action="/selected?param=LoadFIXPerfTest" method="post"">
-  <input type="submit" name="LoadFIXPerfTest" value="run FIX performance tests" style="padding:20px;" style="font-family:verdana;"> 
+  <input type="submit" name="LoadFIXPerfTest" value="run FIX performance tests" style="padding:20px;" style="font-family:verdana;">
+  <br>
   <html style="font-family:verdana;">FIX_ORDERS_RATE (format: integer e.g "10"):</html><input type="text" name="fix_orders_rate" >
+  <br>
   <html style="font-family:verdana;">FIX_ORDERS_NEW_PERCENTAGE (format: integer e.g "10"):</html><input type="text" name="fix_orders_new_percentage" >
+  <br> 
   <html style="font-family:verdana;">FIX_ORDERS_MATCHING_PERCENTAGE (format: integer e.g "10"):</html><input type="text" name="fix_orders_matching_percentage" >
+  <br> 
   <html style="font-family:verdana;">FIX_ORDERS_CANCEL_PERCENTAGE (format: 2022-06-04T15:49:43.000Z):</html><input type="text" name="fix_orders_cancel_percentage" >
+  <br> 
   <html style="font-family:verdana;">FIX_CLIENT_REPLICAS (format: 2022-06-04T15:49:43.000Z):</html><input type="text" name="fix_client_replicas" >
+  <br> 
   </form>
 
   <form action="/selected?param=backupProcessedData" method="post">
@@ -1095,24 +1101,24 @@ func restart_loading_services(service_name string, sMax int, namespace string, w
 	status := "unknown"
 
 	cmd := exec.Command(arg1, arg2, arg3, arg4, arg5, arg6, arg7)
-	logger(logFile, "Running command: "+arg1+" "+arg2+" "+arg3+" "+arg4+" "+arg5+" "+arg6+" "+arg7)
+	logger("(restart_loading_services)", "Running command: "+arg1+" "+arg2+" "+arg3+" "+arg4+" "+arg5+" "+arg6+" "+arg7)
 
 	time.Sleep(5 * time.Second) //really should have a loop here waiting for returns ...
 
 	out, err := cmd.Output()
 
 	if err != nil {
-		logger(logFile, "cannot stop component: "+service_name+" error. "+err.Error())
+		logger("(restart_loading_services)", "cannot stop component: "+service_name+" error. "+err.Error())
 		return "failed"
 
 	} else {
-		logger(logFile, "restarted service - ok")
+		logger("(restart_loading_services)", "restarted service - ok")
 		status = "ok"
 	}
 
 	temp := strings.Split(string(out), "\n")
 	theOutput := strings.Join(temp, `\n`)
-	logger(logFile, "restart command result: "+theOutput)
+	logger("(restart_loading_services)", "restart command result: "+theOutput)
 
 	//for the user
 	w.Write([]byte("<html> <br>scale down service status: " + theOutput + "</html>"))
@@ -1128,7 +1134,7 @@ func restart_loading_services(service_name string, sMax int, namespace string, w
 	//scale up
 	cmd = exec.Command(arg1, arg2, arg3, arg4, arg5, arg6, arg7)
 
-	logger(logFile, "Running command: "+arg1+" "+arg2+" "+arg3+" "+arg4+" "+arg5+" "+arg6+" "+arg7)
+	logger("(restart_loading_services)", "Running command: "+arg1+" "+arg2+" "+arg3+" "+arg4+" "+arg5+" "+arg6+" "+arg7)
 
 	time.Sleep(5 * time.Second)
 
@@ -1136,24 +1142,24 @@ func restart_loading_services(service_name string, sMax int, namespace string, w
 
 	if err != nil {
 
-		logger(logFile, "cannot get status for component: "+service_name+" error. "+err.Error())
+		logger("(restart_loading_services)", "cannot get status for component: "+service_name+" error. "+err.Error())
 		return "failed"
 
 	} else {
 
-		logger(logFile, "got service status - ok")
+		logger("(restart_loading_services)", "got service status - ok")
 		status = "ok"
 
 	}
 
 	temp = strings.Split(string(out), "\n")
 	theOutput = strings.Join(temp, `\n`)
-	logger(logFile, "restart command result: "+theOutput)
+	logger("(restart_loading_services)", "restart command result: "+theOutput)
 
 	//for the user
 	w.Write([]byte("<html> <br>service status: " + theOutput + "</html>"))
 
-	logger(logFile, "done resetting system components for "+service_name)
+	logger("(restart_loading_services)", "done resetting system components for "+service_name)
 	return status
 }
 
