@@ -19,7 +19,7 @@ spec:
       serviceAccountName: internal-kubectl
       containers:
       - name: loader
-        image: archbungle/loader:pulsar-0.0.68d34
+        image: archbungle/loader:pulsar-0.0.68d37
         imagePullPolicy: IfNotPresent
         env:
         - name: NAMESPACE
