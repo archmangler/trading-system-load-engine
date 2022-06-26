@@ -7,7 +7,7 @@ spec:
   selector:
     matchLabels:
       app: fxconsumer
-  replicas: 2
+  replicas: 1000
   strategy:
     type: RollingUpdate
     rollingUpdate:
@@ -24,6 +24,15 @@ spec:
       - name: fxconsumer
         image: archbungle/load-fxconsumer:pulsar-0.0.5d42
         imagePullPolicy: IfNotPresent
+        resources:
+          requests:
+            cpu: 0.3
+            memory: 14Gi
+            ephemeral-storage: 8Gi 
+          limits:
+            cpu: 0.5
+            memory: 16Gi
+            ephemeral-storage: 16Gi
         env:
         - name: FIX_PERFORMANCE_TEST_SERVICE
           value: "fxconsumer"
