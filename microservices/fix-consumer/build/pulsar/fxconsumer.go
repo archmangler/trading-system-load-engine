@@ -1342,6 +1342,13 @@ func buildFIXConf(credentials map[string]string) {
 
 	fileMap := make(map[string]string)
 
+	//update the default user credentials with a random unique lookup from the
+	//db of synthetic users we have in redis
+
+	user1Username = credentials["username"]
+	user1Password = credentials["password"]
+	user1CompId = credentials["account"]
+
 	//crude, but effective ...
 	fileMap["l1"] = "orders.rate=" + fixOrdersRate
 	fileMap["l2"] = "orders.newPercentage=" + fixOrdersNewPercentage
@@ -1400,6 +1407,7 @@ func buildFIXConf(credentials map[string]string) {
 func executeFIXorderRequest(orderData map[string]string, mode string) (o map[int]string, e error) {
 
 	// java -jar target/fix-client-1.0-SNAPSHOT.jar -c config/config.properties -u config/users.csv -i config/instruments.csv -t both
+	resultText := ""
 
 	arg1 := "java"
 	arg2 := "-jar"
@@ -1434,8 +1442,21 @@ func executeFIXorderRequest(orderData map[string]string, mode string) (o map[int
 	for scanner.Scan() {
 
 		m := scanner.Text()
+
+		resultText = m //save the last output from the command ...
+
 		fmt.Println(m)
 		fmt.Println("(executeFIXorderRequest) -> (", lc, ") ", m)
+
+		//return and retry the entire logon process on failure
+		if strings.Contains(m, "UNABLE_TO_LOGON") {
+
+			e = errors.New("logonfail")
+
+			return o, e
+
+		}
+
 		outputData[lc] = m
 		lc++
 
@@ -1455,6 +1476,7 @@ func executeFIXorderRequest(orderData map[string]string, mode string) (o map[int
 
 		}
 
+		//when to stop reading the statistics printout from the FIX perf  tool
 		if strings.Contains(m, "MDIncrRefresh") && read == 1 {
 
 			read = 0
@@ -1499,7 +1521,7 @@ func executeFIXorderRequest(orderData map[string]string, mode string) (o map[int
 	//cmd.Wait()
 
 	//End of streaming
-	fmt.Println("(executeFIXorderRequest) DONE getting stderr from command ...")
+	fmt.Println("(executeFIXorderRequest) DONE getting stderr from command ...", resultText)
 
 	return outputData, nil
 
@@ -1996,7 +2018,7 @@ func main() {
 	credentials["userid"] = strconv.Itoa(userID)
 	credentials["account"] = strconv.Itoa(account)
 
-	fmt.Println("(main) running this worker with user ID: ", credentials["userid"], " and account number: ", credentials["account"])
+	fmt.Println("(main) running this worker with user ID: ", credentials["userid"], " and account number: ", credentials["account"], credentials["username"], credentials["password"])
 
 	//instrumentation metric lookup map
 	datakeyMap["Outgoing Message Rates (per second)"] = "OutgoingMessageRatesps"
@@ -2027,13 +2049,30 @@ func main() {
 	//Build FIX tool configuration files
 	buildFIXConf(credentials)
 
+	retry := 1
+
 	orderData := make(map[string]string)
 
-	//Test execute FIX tool
-	outputData, _ := executeFIXorderRequest(orderData, FIXTestMode)
+	for retry != 0 {
 
-	//process the resulting statistics
-	processData(outputData)
+		//Test execute FIX tool
+		outputData, e := executeFIXorderRequest(orderData, FIXTestMode)
+
+		if strings.Contains(e.Error(), "logonfail") {
+
+			fmt.Println("(main) logon failed. Trying again: ", e.Error())
+			retry = 1
+
+		} else {
+			retry = 0
+			fmt.Println("(main) logon succeeded: ", e.Error())
+
+			//process the resulting statistics
+			processData(outputData)
+
+		}
+
+	}
 
 	//Connect to Pulsar
 	client, err := pulsar.NewClient(

@@ -10,6 +10,7 @@ rules:
       - deployments
       - statefulsets
       - "statefulsets/scale"
+      - "deployments/scale"
     verbs:
       - get
       - list
@@ -17,3 +18,5 @@ rules:
       - scale
       - create
       - patch
+      - update
+      - watch
