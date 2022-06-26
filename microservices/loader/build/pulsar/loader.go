@@ -981,7 +981,7 @@ func (a adminPortal) selectionHandler(w http.ResponseWriter, r *http.Request) {
 
 		w.Write([]byte("<html><h1>Resetting FIX load generator and starting performance test </h1></html>"))
 
-		scaleMax = 10 //VARIABLIZE THIS PLEASE!
+		scaleMax = fixClientReplicas //VARIABLIZE THIS PLEASE!
 
 		configStatus := configureFIXtest(fixOrdersRate, fixOrdersNewPercentage, fixOrdersMatchingPercentage, fixClientReplicas)
 
