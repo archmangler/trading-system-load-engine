@@ -19,11 +19,13 @@ spec:
       serviceAccountName: internal-kubectl
       containers:
       - name: loader
-        image: archbungle/loader:pulsar-0.0.68d37
+        image: archbungle/loader:pulsar-0.0.68d39
         imagePullPolicy: IfNotPresent
         env:
         - name: NAMESPACE
           value: "ragnarok"
+        - name: FIX_PERFORMANCE_TEST_SERVICE
+          value: "fxconsumer"
         - name: INGESTOR_SERVICE_ADDRESS
           value: "http://ingestor-service.ragnarok.svc.cluster.local"
         - name: ORDER_DUMPER_SERVICE_ADDRESS
@@ -144,13 +146,18 @@ rules:
   - apiGroups: ["apps","extensions"]
     resources:
       - deployments
+      - deployments/scale
+      - deployments/*
+      - statefulsets
     verbs:
       - get
+      - update
       - watch
       - list
       - patch
       - delete
       - restart
+      - scale
 ---
 apiVersion: v1
 kind: ServiceAccount

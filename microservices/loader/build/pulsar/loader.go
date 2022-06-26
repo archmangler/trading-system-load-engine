@@ -930,7 +930,8 @@ func (a adminPortal) selectionHandler(w http.ResponseWriter, r *http.Request) {
 
 		//restart all services that need re-initialisation for a new load test
 		_, scaleMax := get_worker_pool(workerType, namespace)
-		status = restart_loading_services("producer", scaleMax, namespace, w, r)
+		serviceType := "statefulset"
+		status = restart_loading_services("producer", scaleMax, namespace, serviceType, w, r)
 
 		w.Write([]byte("<html> <br>Restarted producers - " + status + "</html>"))
 
@@ -946,8 +947,8 @@ func (a adminPortal) selectionHandler(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte("<html><h1>Resetting serial load generator and starting load test with sequential orders </h1></html>"))
 
 		scaleMax = 1
-
-		status = restart_loading_services(serialLoadTestService, scaleMax, namespace, w, r) //restart the serial load producer ...
+		serviceType := "statefulset"
+		status = restart_loading_services(serialLoadTestService, scaleMax, serviceType, namespace, w, r) //restart the serial load producer ...
 
 		w.Write([]byte("<html> <br>Restarted serial producer - " + status + "</html>"))
 
@@ -988,7 +989,8 @@ func (a adminPortal) selectionHandler(w http.ResponseWriter, r *http.Request) {
 			w.Write([]byte("<html> <br>FIX test config failed. please try again." + "</html>"))
 		}
 
-		status = restart_loading_services(fixPerfTestService, scaleMax, namespace, w, r) //restart the FIX LOAD TEST ...
+		serviceType := "deployment"
+		status = restart_loading_services(fixPerfTestService, scaleMax, namespace, serviceType, w, r) //restart the FIX LOAD TEST ...
 
 		w.Write([]byte("<html> <br>Restarted FIX load test cluster - " + status + "</html>"))
 		w.Write([]byte("<html> <br>FIX Performance test running in background ...</html>"))
@@ -1060,18 +1062,12 @@ func (a adminPortal) handler(w http.ResponseWriter, r *http.Request) {
   </form>
 
   <form action="/selected?param=LoadFIXPerfTest" method="post"">
-  <input type="submit" name="LoadFIXPerfTest" value="run FIX performance tests" style="padding:20px;" style="font-family:verdana;">
-  <br>
+  <input type="submit" name="LoadFIXPerfTest" value="run FIX performance tests" style="padding:20px;" style="font-family:verdana;"> 
   <html style="font-family:verdana;">FIX_ORDERS_RATE (format: integer e.g "10"):</html><input type="text" name="fix_orders_rate" >
-  <br>
   <html style="font-family:verdana;">FIX_ORDERS_NEW_PERCENTAGE (format: integer e.g "10"):</html><input type="text" name="fix_orders_new_percentage" >
-  <br> 
   <html style="font-family:verdana;">FIX_ORDERS_MATCHING_PERCENTAGE (format: integer e.g "10"):</html><input type="text" name="fix_orders_matching_percentage" >
-  <br> 
   <html style="font-family:verdana;">FIX_ORDERS_CANCEL_PERCENTAGE (format: 2022-06-04T15:49:43.000Z):</html><input type="text" name="fix_orders_cancel_percentage" >
-  <br> 
   <html style="font-family:verdana;">FIX_CLIENT_REPLICAS (format: 2022-06-04T15:49:43.000Z):</html><input type="text" name="fix_client_replicas" >
-  <br> 
   </form>
 
   <form action="/selected?param=backupProcessedData" method="post">
@@ -1087,12 +1083,12 @@ func (a adminPortal) handler(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(html_content))
 }
 
-func restart_loading_services(service_name string, sMax int, namespace string, w http.ResponseWriter, r *http.Request) string {
+func restart_loading_services(service_name string, sMax int, namespace string, serviceType string, w http.ResponseWriter, r *http.Request) string {
 
 	//scale down to 0, then scale up to the current max.
 	arg1 := "kubectl"
 	arg2 := "scale"
-	arg3 := "statefulset"
+	arg3 := serviceType //e.g "deployment","statefulset"
 	arg4 := service_name
 	arg5 := "--replicas=0"
 	arg6 := "--namespace"
@@ -1101,31 +1097,31 @@ func restart_loading_services(service_name string, sMax int, namespace string, w
 	status := "unknown"
 
 	cmd := exec.Command(arg1, arg2, arg3, arg4, arg5, arg6, arg7)
-	logger("(restart_loading_services)", "Running command: "+arg1+" "+arg2+" "+arg3+" "+arg4+" "+arg5+" "+arg6+" "+arg7)
+	logger(logFile, "Running command: "+arg1+" "+arg2+" "+arg3+" "+arg4+" "+arg5+" "+arg6+" "+arg7)
 
 	time.Sleep(5 * time.Second) //really should have a loop here waiting for returns ...
 
 	out, err := cmd.Output()
 
 	if err != nil {
-		logger("(restart_loading_services)", "cannot stop component: "+service_name+" error. "+err.Error())
+		logger(logFile, "cannot stop component: "+service_name+" error. "+err.Error())
 		return "failed"
 
 	} else {
-		logger("(restart_loading_services)", "restarted service - ok")
+		logger(logFile, "restarted service - ok")
 		status = "ok"
 	}
 
 	temp := strings.Split(string(out), "\n")
 	theOutput := strings.Join(temp, `\n`)
-	logger("(restart_loading_services)", "restart command result: "+theOutput)
+	logger(logFile, "restart command result: "+theOutput)
 
 	//for the user
 	w.Write([]byte("<html> <br>scale down service status: " + theOutput + "</html>"))
 
 	arg1 = "kubectl"
 	arg2 = "scale"
-	arg3 = "statefulset"
+	arg3 = serviceType
 	arg4 = service_name
 	arg5 = "--replicas=" + strconv.Itoa(sMax)
 	arg6 = "--namespace"
@@ -1134,7 +1130,7 @@ func restart_loading_services(service_name string, sMax int, namespace string, w
 	//scale up
 	cmd = exec.Command(arg1, arg2, arg3, arg4, arg5, arg6, arg7)
 
-	logger("(restart_loading_services)", "Running command: "+arg1+" "+arg2+" "+arg3+" "+arg4+" "+arg5+" "+arg6+" "+arg7)
+	logger(logFile, "Running command: "+arg1+" "+arg2+" "+arg3+" "+arg4+" "+arg5+" "+arg6+" "+arg7)
 
 	time.Sleep(5 * time.Second)
 
@@ -1142,24 +1138,24 @@ func restart_loading_services(service_name string, sMax int, namespace string, w
 
 	if err != nil {
 
-		logger("(restart_loading_services)", "cannot get status for component: "+service_name+" error. "+err.Error())
+		logger(logFile, "cannot get status for component: "+service_name+" error. "+err.Error())
 		return "failed"
 
 	} else {
 
-		logger("(restart_loading_services)", "got service status - ok")
+		logger(logFile, "got service status - ok")
 		status = "ok"
 
 	}
 
 	temp = strings.Split(string(out), "\n")
 	theOutput = strings.Join(temp, `\n`)
-	logger("(restart_loading_services)", "restart command result: "+theOutput)
+	logger(logFile, "restart command result: "+theOutput)
 
 	//for the user
 	w.Write([]byte("<html> <br>service status: " + theOutput + "</html>"))
 
-	logger("(restart_loading_services)", "done resetting system components for "+service_name)
+	logger(logFile, "done resetting system components for "+service_name)
 	return status
 }
 
