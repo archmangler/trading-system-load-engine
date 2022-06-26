@@ -21,18 +21,18 @@ module "eks" {
   # EKS Managed Node Group(s)
   eks_managed_node_group_defaults = {
     ami_type               = "AL2_x86_64"
-    disk_size              = 100
+    disk_size              = 250
     instance_types         = ["t3.xlarge"]
     vpc_security_group_ids = [aws_security_group.worker_group_mgmt_one.id, aws_security_group.worker_group_mgmt_two.id]
   }
 
   eks_managed_node_groups = {
     np001 = {
-      min_size       = 1
-      max_size       = 3
-      desired_size   = 2
+      min_size       = 6
+      max_size       = 18
+      desired_size   = 9
       instance_types = ["t3.xlarge"]
-      disk_size      = 100
+      disk_size      = 250
       capacity_type  = "ON_DEMAND"
       labels = {
         Environment = "poc"
@@ -41,11 +41,11 @@ module "eks" {
       }
     }
     np002 = {
-      min_size       = 1
-      max_size       = 3
-      desired_size   = 2
+      min_size       = 6
+      max_size       = 18
+      desired_size   = 9
       instance_types = ["t3.xlarge"]
-      disk_size      = 100
+      disk_size      = 250
       capacity_type  = "ON_DEMAND"
       labels = {
         Environment = "poc"
@@ -54,11 +54,11 @@ module "eks" {
       }
     }
     np003 = {
-      min_size       = 1
-      max_size       = 3
-      desired_size   = 2
+      min_size       = 6
+      max_size       = 18
+      desired_size   = 9
       instance_types = ["t3.xlarge"]
-      disk_size      = 100
+      disk_size      = 250
       capacity_type  = "ON_DEMAND"
       labels = {
         Environment = "poc"
@@ -67,11 +67,11 @@ module "eks" {
       }
     }
     np004 = {
-      min_size       = 1
-      max_size       = 3
-      desired_size   = 2
+      min_size       = 6
+      max_size       = 18
+      desired_size   = 9
       instance_types = ["t3.xlarge"]
-      disk_size      = 100
+      disk_size      = 250
       capacity_type  = "ON_DEMAND"
       labels = {
         Environment = "poc"
@@ -80,10 +80,10 @@ module "eks" {
       }
     }
     np005 = {
-      min_size       = 1
-      max_size       = 3
-      desired_size   = 2
-      disk_size      = 100
+      min_size       = 6
+      max_size       = 18
+      desired_size   = 9
+      disk_size      = 250
       instance_types = ["t3.xlarge"]
       capacity_type  = "ON_DEMAND"
       labels = {
