@@ -24,6 +24,12 @@ spec:
       - name: fxconsumer
         image: archbungle/load-fxconsumer:pulsar-0.0.5d42
         imagePullPolicy: IfNotPresent
+        resources:
+          requests:
+            memory: 14Gi
+          limits:
+            cpu: 0.5
+            memory: 16Gi
         env:
         - name: FIX_PERFORMANCE_TEST_SERVICE
           value: "fxconsumer"
