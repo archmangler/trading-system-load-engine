@@ -16,7 +16,7 @@ spec:
     spec:
       containers:
       - name: order-dumper
-        image: archbungle/order-dumper:0.0.41d28
+        image: archbungle/order-dumper:0.0.41d31
         imagePullPolicy: IfNotPresent 
         resources:
           requests:

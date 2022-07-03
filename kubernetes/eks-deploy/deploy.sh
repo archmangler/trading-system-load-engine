@@ -5,14 +5,14 @@ echo "building eks cluster: $AWS_CLUSTER_NAME"
 
 function install_prerequisites () {
   echo "skipping aws installation on Linux (for Mac only)"
-  brew install awscli
+  #brew install awscli
   #force it ...
-  brew link --overwrite awscli
+  #brew link --overwrite awscli
 }
 
 function install_authenticator () {
    #On Macosx and for olrder versions of aws cli: https://docs.aws.amazon.com/eks/latest/userguide/install-aws-iam-authenticator.html
-   brew install aws-iam-authenticator
+   #brew install aws-iam-authenticator
    aws eks get-token 
 }
 
