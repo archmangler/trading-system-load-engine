@@ -401,6 +401,8 @@ func processHistoricalOrderStream() {
 	defer conn.Close()
 
 	//loop through line by line
+	skip := 0 //count the number of items tried and found lacking ...
+
 	for line := range theData {
 		//filter constructed here:
 		if strings.Contains(theData[line], "NewOrderSingleRequest") && !strings.Contains(theData[line], "TradeState") {
@@ -444,7 +446,13 @@ func processHistoricalOrderStream() {
 
 			fmt.Println("(processHistoricalOrderStream) ", " orders inserted: ", oCnt, " order insertion errors: ", errCnt)
 
+		} else {
+			fmt.Println("(processHistoricalOrderStream) ", "no match - skip: ", theData[line])
+			skip++
 		}
+
+		fmt.Println("(processHistoricalOrderStream) ", " total skipped lines (no match): ", skip)
+
 	}
 
 	//just in case ...
