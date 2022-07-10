@@ -16,7 +16,7 @@ spec:
     spec:
 #      nodeSelector:
 #        agentpool: np001
-      serviceAccountName: internal-kubectl
+      serviceAccountName: loader-internal-kubectl
       containers:
       - name: loader
         image: archbungle/loader:pulsar-0.0.68d41
@@ -126,21 +126,21 @@ spec:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: modify-pods-to-sa
+  name: loader-modify-pods-to-sa
   namespace: ragnarok
 subjects:
   - kind: ServiceAccount
-    name: internal-kubectl
+    name: loader-internal-kubectl
 roleRef:
   kind: Role
-  name: modify-pods
+  name: loader-modify-pods
   apiGroup: rbac.authorization.k8s.io
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  name: modify-pods
+  name: loader-modify-pods
   namespace: ragnarok
 rules:
   - apiGroups: ["apps","extensions"]
@@ -162,5 +162,5 @@ rules:
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: internal-kubectl
+  name: loader-internal-kubectl
   namespace: ragnarok
