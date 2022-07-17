@@ -22,6 +22,7 @@ RUN go build ./credsloader/loadcreds.go
 
 #store user credential data for processing
 #and later removal
+RUN mkdir -p /appconfig
 RUN mkdir -p /applogs
 RUN mkdir -p /userdata
 COPY users /userdata

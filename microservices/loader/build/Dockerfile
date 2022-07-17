@@ -10,6 +10,7 @@ COPY *.go ./
 
 RUN go build -o /loader
 
+RUN mkdir -p /appconfig
 RUN mkdir -p /datastore
 RUN mkdir -p /processed
 RUN mkdir -p /backups

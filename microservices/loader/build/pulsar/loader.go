@@ -34,6 +34,18 @@ var dumpTimeInterval, _ = strconv.Atoi(os.Getenv("ORDER_DUMP_TIME_INTERVAL"))   
 var serialLoadTestService = os.Getenv("SERIAL_LOAD_TEST_SERVICE")                //SERIAL_LOAD_TEST_SERVICE
 var fixPerfTestService = os.Getenv("FIX_PERFORMANCE_TEST_SERVICE")               //kubernetes service name of the fix performance testing service (kubectl get deployments| egrep whatever)
 
+//Load Engine Batch Automation Configuration (obtained from configmap environment)
+var serialHistoricalTests string = os.Getenv("SERIAL_HISTORICAL_TESTS")                        // execute real orders in historical sequence
+var concurrentHistoricalTests string = os.Getenv("CONCURRENT_HISTORICAL_TESTS")                // execute real historical orders concurrently (not in order)
+var concurrentSyntheticTests = os.Getenv("CONCURRENT_SYNTHETIC_TESTS")                         // execute synthetic orders concurrently for maximum loads
+var fixOrdersNewPercentage, _ = strconv.Atoi(os.Getenv("FIX_ORDERS_NEW_PERCENTAGE"))           // percentage of new FIX orders in synthetic order load test (FIX API)
+var fixOrdersCancel, _ = strconv.Atoi(os.Getenv("FIX_ORDERS_CANCEL"))                          //
+var fixOrdersMatchingPercentage, _ = strconv.Atoi(os.Getenv("FIX_ORDERS_MATCHING_PERCENTAGE")) //
+var historicalOrdersSequenceEndTime = os.Getenv("HISTORICAL_ORDERS_SEQUENCE_END_TIME")         // default start time stamp for historical order dump from kafka
+var historicalOrdersSequenceStartTime = os.Getenv("HISTORICAL_ORDERS_SEQUENCE_START_TIME")     //default stop time stamp for historical order dump from kafka
+var syntheticSequenceStart, _ = strconv.Atoi(os.Getenv("SYNTHETIC_SEQUENCE_START"))            // beginning of synthetic order sequence to generate for load
+var syntheticSequenceEnd, _ = strconv.Atoi(os.Getenv("SYNTHETIC_SEQUENCE_END"))                // end of synthetic order sequence to generate for load
+
 //pulsar connection details
 var brokerServiceAddress = os.Getenv("PULSAR_BROKER_SERVICE_ADDRESS") // e.g "pulsar://pulsar-mini-broker.pulsar.svc.cluster.local:6650"
 var subscriptionName = os.Getenv("PULSAR_CONSUMER_SUBSCRIPTION_NAME") //e.g sub003
@@ -43,6 +55,9 @@ var source_directory string = os.Getenv("DATA_SOURCE_DIRECTORY") + "/"    // "/d
 var processed_directory string = os.Getenv("DATA_OUT_DIRECTORY") + "/"    //"/processed"
 var backup_directory string = os.Getenv("BACKUP_DIRECTORY") + "/"         // "/backups"
 var logFile string = os.Getenv("LOCAL_LOGFILE_PATH") + "/" + "loader.log" // "/applogs"
+
+//Automated batch run configuration
+var configFilePath string = os.Getenv("BATCH_CONFIG_PATH") //configuration path to batch automation file
 
 var topic1 string = os.Getenv("DEADLETTER_TOPIC")                  // "deadLetter" - for failed message file generation
 var topic2 string = os.Getenv("METRICS_TOPIC")                     // "metrics" - for metrics that should be streamed via a topic/queue
@@ -818,7 +833,7 @@ func loadHistoricalData(w http.ResponseWriter, r *http.Request) (string, error) 
 }
 
 func markUserCredentialsUnused() (status string) {
-	//simply call the decicated golang script that implements the function
+	//simply call the dedicated golang script that implements the function
 	//within the container filesystem, this should be: "/app/loadcreds"
 
 	arg1 := "/app/loadcreds"
@@ -907,6 +922,19 @@ func (a adminPortal) selectionHandler(w http.ResponseWriter, r *http.Request) {
 		serial := 0 //stream the orders to the api in original order 1 or in parallel 0
 
 		bootStrapOrderData(sequenceReplayDBindex, start_of_sequence, end_of_sequence, serial)
+
+	}
+
+	if selection[parts[0]] == "AutoLoadTest" {
+
+		enableMode := strings.Join(r.Form["StartBatchAutoMode"], " ")
+		disableMode := strings.Join(r.Form["StopBatchAutoMode"], " ")
+
+		w.Write([]byte("<html><h1>Creating input load data from topic sequence ... </h1></html>"))
+
+		fmt.Println("(selectionHandler) got parameter strings: ", disableMode, enableMode)
+
+		setLoadEngineMode(enableMode, disableMode)
 
 	}
 
@@ -1013,6 +1041,23 @@ func (a adminPortal) selectionHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(html_content))
 }
 
+//set the Load Testing Engine mode (Automated batch mode or "driven via the web u.i")
+func setLoadEngineMode(enableMode string, disableMode string) {
+
+	//If Auto				: a) Read the batch automation configuration and b) run the automated call sequence by calling all required subroutines
+	//If Disable Auto		: Stop any running batch execution loop
+
+	if enableMode == "autoMode" {
+		fmt.Println("(setLoadEngineMode) Running all load tests in automated batch mode ...")
+	}
+
+	if disableMode == "batchMode" {
+		fmt.Println("(setLoadEngineMode) Disabling automated batch tests. Run tests manually from the Web U.I = ")
+	}
+
+}
+
+//Do we still need this ?
 func configureFIXtest(fixOrdersRate int, fixOrdersNewPercentage int, fixOrdersMatchingPercentage int, fixClientReplicas int) (err error) {
 
 	fmt.Println("(configureFIXtest) got FIX perf test parameters: ", fixOrdersRate, fixOrdersNewPercentage, fixOrdersMatchingPercentage, fixClientReplicas)
@@ -1031,47 +1076,94 @@ func (a adminPortal) handler(w http.ResponseWriter, r *http.Request) {
 	<body>
 	<div style="padding:10px;">
 	<h3 style="font-family:verdana;">Select Load Testing Operations:</h3>
-	  <br>
+	<br>
 
+	<form action="/selected?param=AutoLoadTest" method="post">
+	 <fieldset>
+ 	  <legend>Load Engine Mode</legend>
+	    <input type="submit" name="StartBatchAutoMode" value="autoMode" style="padding:50px;">
+	     <input type="submit" name="StopBatchAutoMode" value="batchMode" style="padding:50px;">
+	    </fieldset>
+	  </form>
+	<br>
 
-  <form action="/selected?param=LoadHistoricalData" method="post">
-  <input type="submit" name="LoadHistoricalData" value="load from historical data" style="padding:20px;">
-  <br>
-  </form>
-
-  <form action="/selected?param=RestartLoadTest" method="post">
-  <input type="submit" name="RestartLoadTest" value="restart / reset CONCURRENT load test" style="padding:20px;">
-  <br>
-  </form>
- 
-  <form action="/selected?param=LoadSyntheticData" method="post">
-          <input type="submit" name="LoadSyntheticData" value="load from synthetic data" style="padding:20px;">
-  <html style="font-family:verdana;">Start of sequence:</html><input type="text" name="start" >
-  <html style="font-family:verdana;">End of Sequence:</html><input type="text" name="stop" >
+   <form action="/selected?param=LoadFIXPerfTest" method="post"">
+	<fieldset>
+	<legend>FIX API performance tests (Synthetic Orders)</legend>
+	 <input type="submit" name="LoadFIXPerfTest" value="Run FIX performance tests" style="padding:50px;" style="font-family:verdana;"> 
+	 <br>
+	 <html style="font-family:verdana;">FIX_ORDERS_RATE (format: integer e.g "10"):</html><input type="text" name="fix_orders_rate" >
+	 <br>
+	 <html style="font-family:verdana;">FIX_ORDERS_NEW_PERCENTAGE (format: integer e.g "10"):</html><input type="text" name="fix_orders_new_percentage" >
+	 <br>
+	 <html style="font-family:verdana;">FIX_ORDERS_MATCHING_PERCENTAGE (format: integer e.g "10"):</html><input type="text" name="fix_orders_matching_percentage" >
+	 <br>
+	 <html style="font-family:verdana;">FIX_ORDERS_CANCEL_PERCENTAGE (integer, eg 25):</html><input type="text" name="fix_orders_cancel_percentage" >
+	 <br>
+	 <html style="font-family:verdana;">FIX_CLIENT_REPLICAS (integer e.g 100):</html><input type="text" name="fix_client_replicas" >
+	 <br>
+	 </p>
+	</fieldset>
   </form>
 
   <form action="/selected?param=LoadRequestSequence" method="post"">
-  <input type="submit" name="LoadRequestSequence" value="load request sequence" style="padding:20px;" style="font-family:verdana;"> 
-  <html style="font-family:verdana;">Start time of sequence (format: 2022-06-04T15:49:43.000Z):</html><input type="text" name="start" >
-  <html style="font-family:verdana;">End time of Sequence (format: 2022-06-04T15:49:43.000Z):</html><input type="text" name="stop" >
+  <fieldset>
+  <legend>Select Time-bound Historical Order Sequence</legend>
+   <br>
+   <input type="submit" name="LoadRequestSequence" value="load request sequence" style="padding:50px;" style="font-family:verdana;"> 
+   <br>
+   <html style="font-family:verdana;">Start time of sequence (format: 2022-06-04T15:49:43.000Z):</html><input type="text" name="start" >
+   <br>
+   <html style="font-family:verdana;">End time of Sequence (format: 2022-06-04T15:49:43.000Z):</html><input type="text" name="stop" >
+   </fieldset>
+   </p>
   </form>
 
   <form action="/selected?param=RestartSerialLoadTest" method="post">
-  <input type="submit" name="RestartSerialLoadTest" value="restart / reset SEQUENTIAL load test" style="padding:20px;">
+   <fieldset>
+   <legend>Retrigger Serial Load Testing (HTTP API)</legend>
+     <input type="submit" name="RestartSerialLoadTest" value="Restart SEQUENTIAL load test" style="padding:50px;">
+    <br>
+   </p>
+  </fieldset>
+  </form>
+
+  <form action="/selected?param=LoadSyntheticData" method="post">
+  <fieldset>
+	<legend>Generate Synthetic Order Sequence</legend>
+	<input type="submit" name="LoadSyntheticData" value="load from synthetic data" style="padding:50px;">
   <br>
+   <html style="font-family:verdana;">Start of sequence:</html><input type="text" name="start" >
+   <br>
+   <html style="font-family:verdana;">End of Sequence:</html><input type="text" name="stop" >
+   </fieldset>
+  </p>
   </form>
 
-  <form action="/selected?param=LoadFIXPerfTest" method="post"">
-  <input type="submit" name="LoadFIXPerfTest" value="run FIX performance tests" style="padding:20px;" style="font-family:verdana;"> 
-  <html style="font-family:verdana;">FIX_ORDERS_RATE (format: integer e.g "10"):</html><input type="text" name="fix_orders_rate" >
-  <html style="font-family:verdana;">FIX_ORDERS_NEW_PERCENTAGE (format: integer e.g "10"):</html><input type="text" name="fix_orders_new_percentage" >
-  <html style="font-family:verdana;">FIX_ORDERS_MATCHING_PERCENTAGE (format: integer e.g "10"):</html><input type="text" name="fix_orders_matching_percentage" >
-  <html style="font-family:verdana;">FIX_ORDERS_CANCEL_PERCENTAGE (format: 2022-06-04T15:49:43.000Z):</html><input type="text" name="fix_orders_cancel_percentage" >
-  <html style="font-family:verdana;">FIX_CLIENT_REPLICAS (format: 2022-06-04T15:49:43.000Z):</html><input type="text" name="fix_client_replicas" >
+  <form action="/selected?param=LoadHistoricalData" method="post">
+   <fieldset>
+    <legend>Load Historical Data from S3 bucket</legend>
+     <input type="submit" name="LoadHistoricalData" value="load from historical data" style="padding:50px;">
+   </fieldset>
+   <br>
+   </p>
   </form>
 
+  <form action="/selected?param=RestartLoadTest" method="post">
+  <fieldset>
+   <legend>Retrigger concurrent load tests (HTTP API)</legend>
+    <input type="submit" name="RestartLoadTest" value="Restart CONCURRENT load test" style="padding:50px;">
+   </fieldset>
+   <br>
+  </p>
+  </form>
+ 
   <form action="/selected?param=backupProcessedData" method="post">
-    <input type="submit" name="backupProcessedData" value="backup order queue" style="padding:20px;">
+   <fieldset>
+   <legend>Backup downloaded orders</legend>
+    <input type="submit" name="backupProcessedData" value="backup order queue" style="padding:50px;">
+   </p>	
+   </fieldset>
   </form>
 
   </div>
@@ -1153,7 +1245,7 @@ func restart_loading_services(service_name string, sMax int, namespace string, s
 	logger("(restart_loading_services) ", "restart command result: "+theOutput)
 
 	//for the user
-	w.Write([]byte("<html> <br>service status: " + theOutput + "</html>"))
+	w.Write([]byte("<html><br>service status: " + theOutput + "</html>"))
 
 	logger(logFile, "done resetting system components for "+service_name)
 	return status
@@ -2267,7 +2359,57 @@ func flushStaleOrderData(sourceDBIndex int) error {
 	return err
 }
 
+func readUserCredentialFile(uf string) []byte {
+
+	// Open our jsonFile
+	jsonFile, err := os.Open(uf)
+
+	// if we os.Open returns an error then handle it
+	if err != nil {
+		fmt.Println("(readUserCredentialFile) ", err)
+	}
+
+	fmt.Println("(readUserCredentialFile) reading ", uf)
+	// defer the closing of our jsonFile so that we can parse it later on
+	defer jsonFile.Close()
+
+	byteValue, _ := ioutil.ReadAll(jsonFile)
+
+	return byteValue
+
+}
+
+func getBatchConfig(configFilePath string) {
+
+	/*
+		var serialHistoricalTests string = os.Getenv("SERIAL_HISTORICAL_TESTS")                        // execute real orders in historical sequence
+		var concurrentHistoricalTests string = os.Getenv("CONCURRENT_HISTORICAL_TESTS")                // execute real historical orders concurrently (not in order)
+		var concurrentSyntheticTests = os.Getenv("CONCURRENT_SYNTHETIC_TESTS")                         // execute synthetic orders concurrently for maximum loads
+		var fixOrdersNewPercentage, _ = strconv.Atoi(os.Getenv("FIX_ORDERS_NEW_PERCENTAGE"))           // percentage of new FIX orders in synthetic order load test (FIX API)
+		var fixOrdersCancel, _ = strconv.Atoi(os.Getenv("FIX_ORDERS_CANCEL"))                          //
+		var fixOrdersMatchingPercentage, _ = strconv.Atoi(os.Getenv("FIX_ORDERS_MATCHING_PERCENTAGE")) //
+		var historicalOrdersSequenceEndTime = os.Getenv("HISTORICAL_ORDERS_SEQUENCE_END_TIME")         // default start time stamp for historical order dump from kafka
+		var historicalOrdersSequenceStartTime = os.Getenv("HISTORICAL_ORDERS_SEQUENCE_START_TIME")     //default stop time stamp for historical order dump from kafka
+		var syntheticSequenceStart, _ = strconv.Atoi(os.Getenv("SYNTHETIC_SEQUENCE_START"))            // beginning of synthetic order sequence to generate for load
+		var syntheticSequenceEnd, _ = strconv.Atoi(os.Getenv("SYNTHETIC_SEQUENCE_END"))                // end of synthetic order sequence to generate for load
+	*/
+
+	fmt.Println("(getBatchConfig) serialHistoricalTests -> ", serialHistoricalTests)
+	fmt.Println("(getBatchConfig) concurrentHistoricalTests -> ", concurrentHistoricalTests)
+	fmt.Println("(getBatchConfig) concurrentSyntheticTests -> ", concurrentSyntheticTests)
+	fmt.Println("(getBatchConfig) fixOrdersNewPercentage -> ", fixOrdersNewPercentage)
+	fmt.Println("(getBatchConfig) fixOrdersCancel -> ", fixOrdersCancel)
+	fmt.Println("(getBatchConfig) fixOrdersMatchingPercentage -> ", fixOrdersMatchingPercentage)
+	fmt.Println("(getBatchConfig) historicalOrdersSequenceEndTime -> ", historicalOrdersSequenceEndTime)
+	fmt.Println("(getBatchConfig) historicalOrdersSequenceStartTime -> ", historicalOrdersSequenceStartTime)
+	fmt.Println("(getBatchConfig) syntheticSequenceStart -> ", syntheticSequenceStart)
+	fmt.Println("(getBatchConfig) syntheticSequenceEnd -> ", syntheticSequenceEnd)
+
+}
+
 func main() {
+
+	getBatchConfig(configFilePath) //get the batch automation configuration for running load testing in unattended mode
 
 	//refresh status of all synthetic user credentials in REDIS DB (DBN index 14)
 	markUserCredentialsUnused()
