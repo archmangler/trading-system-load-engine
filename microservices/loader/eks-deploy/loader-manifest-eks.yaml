@@ -19,9 +19,76 @@ spec:
       serviceAccountName: loader-internal-kubectl
       containers:
       - name: loader
-        image: archbungle/loader:pulsar-0.0.68d41
+        image: archbungle/loader:pulsar-0.0.75
         imagePullPolicy: IfNotPresent
         env:
+        - name: LOAD_ENGINE_MODE          # Notice that the case is different here from the key name in the ConfigMap.
+          valueFrom:
+            configMapKeyRef:
+              name: batch-automation    # The ConfigMap this value comes from.
+              key: load_engine_mode     # The key to fetch.
+        - name: FIX_ORDERS_RATE         # Notice that the case is different here from the key name in the ConfigMap.
+          valueFrom:
+            configMapKeyRef:
+              name: batch-automation    # The ConfigMap this value comes from.
+              key: fix_orders_rate      # The key to fetch.
+        - name: SERIAL_HISTORICAL_TESTS        # Notice that the case is different here from the key name in the ConfigMap.
+          valueFrom:
+            configMapKeyRef:
+              name: batch-automation         # The ConfigMap this value comes from.
+              key: serial_historical_tests   # The key to fetch.
+        - name:  CONCURRENT_HISTORICAL_TESTS        # Notice that the case is different here from the key name in the ConfigMap.
+          valueFrom:
+            configMapKeyRef:
+              name: batch-automation         # The ConfigMap this value comes from.
+              key: concurrent_historical_tests   # The key to fetch.
+        - name:  CONCURRENT_SYNTHETIC_TESTS        # Notice that the case is different here from the key name in the ConfigMap.
+          valueFrom:
+            configMapKeyRef:
+              name: batch-automation         # The ConfigMap this value comes from.
+              key: concurrent_synthetic_tests   # The key to fetch.
+        - name: FIX_ORDERS_NEW_PERCENTAGE        # Notice that the case is different here from the key name in the ConfigMap.
+          valueFrom:
+            configMapKeyRef:
+              name: batch-automation         # The ConfigMap this value comes from.
+              key: fix_orders_new_percentage  # The key to fetch.
+        - name:  FIX_ORDERS_CANCEL        # Notice that the case is different here from the key name in the ConfigMap.
+          valueFrom:
+            configMapKeyRef:
+              name: batch-automation         # The ConfigMap this value comes from.
+              key: fix_orders_cancel  # The key to fetch.
+        - name: FIX_ORDERS_MATCHING_PERCENTAGE        # Notice that the case is different here from the key name in the ConfigMap.
+          valueFrom:
+            configMapKeyRef:
+              name: batch-automation         # The ConfigMap this value comes from.
+              key: fix_orders_matching_percentage  # The key to fetch.
+        - name: FIX_CLIENT_REPLICAS        # Notice that the case is different here from the key name in the ConfigMap.
+          valueFrom:
+            configMapKeyRef:
+              name: batch-automation         # The ConfigMap this value comes from.
+              key: fix_client_replicas  # The key to fetch.
+        - name: HISTORICAL_ORDERS_SEQUENCE_START_TIME       # Notice that the case is different here from the key name in the ConfigMap.
+          valueFrom:
+            configMapKeyRef:
+              name: batch-automation         # The ConfigMap this value comes from.
+              key: historical_orders_sequence_start_time  # The key to fetch.
+        - name: HISTORICAL_ORDERS_SEQUENCE_END_TIME       # Notice that the case is different here from the key name in the ConfigMap.
+          valueFrom:
+            configMapKeyRef:
+              name: batch-automation         # The ConfigMap this value comes from.
+              key: historical_orders_sequence_end_time  # The key to fetch.
+        - name: SYNTHETIC_SEQUENCE_START       # Notice that the case is different here from the key name in the ConfigMap.
+          valueFrom:
+            configMapKeyRef:
+              name: batch-automation         # The ConfigMap this value comes from.
+              key: synthetic_sequence_start  # The key to fetch.
+        - name: SYNTHETIC_SEQUENCE_END       # Notice that the case is different here from the key name in the ConfigMap.
+          valueFrom:
+            configMapKeyRef:
+              name: batch-automation         # The ConfigMap this value comes from.
+              key: synthetic_sequence_end    # The key to fetch.
+        - name: BATCH_CONFIG_PATH
+          value: "/appconfig/batch-automation.conf"
         - name: NAMESPACE
           value: "ragnarok"
         - name: FIX_PERFORMANCE_TEST_SERVICE
@@ -91,7 +158,7 @@ spec:
         - name: STOP_MESSAGE_SEQUENCE_ID
           value: "1100"
         - name: GRAFANA_DASHBOARD_URL
-          value: "http://13.67.56.239/d/AtqYwRA7k/transaction-matching-system-load-metrics?orgId=1" 
+          value: "http://k8s-ragnarok-ragnarok-0eac0ccabd-1257342977.ap-southeast-1.elb.amazonaws.com/"
         - name: ADMIN_PASSWORD
           value: "somethingrandom"
 #        volumeMounts:
