@@ -19,7 +19,7 @@ spec:
       serviceAccountName: loader-internal-kubectl
       containers:
       - name: loader
-        image: archbungle/loader:pulsar-0.0.75
+        image: archbungle/loader:pulsar-0.0.77
         imagePullPolicy: IfNotPresent
         env:
         - name: LOAD_ENGINE_MODE          # Notice that the case is different here from the key name in the ConfigMap.

@@ -35,12 +35,15 @@ var serialLoadTestService = os.Getenv("SERIAL_LOAD_TEST_SERVICE")               
 var fixPerfTestService = os.Getenv("FIX_PERFORMANCE_TEST_SERVICE")               //kubernetes service name of the fix performance testing service (kubectl get deployments| egrep whatever)
 
 //Load Engine Batch Automation Configuration (obtained from configmap environment)
+var loadEngineMode string = os.Getenv("LOAD_ENGINE_MODE")                                      //load_engine_mode, auto = run all tests continuously in sequence, user = run tests via the web interface
 var serialHistoricalTests string = os.Getenv("SERIAL_HISTORICAL_TESTS")                        // execute real orders in historical sequence
 var concurrentHistoricalTests string = os.Getenv("CONCURRENT_HISTORICAL_TESTS")                // execute real historical orders concurrently (not in order)
 var concurrentSyntheticTests = os.Getenv("CONCURRENT_SYNTHETIC_TESTS")                         // execute synthetic orders concurrently for maximum loads
 var fixOrdersNewPercentage, _ = strconv.Atoi(os.Getenv("FIX_ORDERS_NEW_PERCENTAGE"))           // percentage of new FIX orders in synthetic order load test (FIX API)
 var fixOrdersCancel, _ = strconv.Atoi(os.Getenv("FIX_ORDERS_CANCEL"))                          //
 var fixOrdersMatchingPercentage, _ = strconv.Atoi(os.Getenv("FIX_ORDERS_MATCHING_PERCENTAGE")) //
+var fixOrdersRate, _ = strconv.Atoi(os.Getenv("FIX_ORDERS_RATE"))                              // FIX orders per second to the FIXAPI
+var fixClientReplicas, _ = strconv.Atoi(os.Getenv("FIX_CLIENT_REPLICAS"))                      //FIX_CLIENT_REPLICAS
 var historicalOrdersSequenceEndTime = os.Getenv("HISTORICAL_ORDERS_SEQUENCE_END_TIME")         // default start time stamp for historical order dump from kafka
 var historicalOrdersSequenceStartTime = os.Getenv("HISTORICAL_ORDERS_SEQUENCE_START_TIME")     //default stop time stamp for historical order dump from kafka
 var syntheticSequenceStart, _ = strconv.Atoi(os.Getenv("SYNTHETIC_SEQUENCE_START"))            // beginning of synthetic order sequence to generate for load
@@ -1057,13 +1060,16 @@ func setLoadEngineMode(enableMode string, disableMode string) {
 
 }
 
-//Do we still need this ?
+//FIX API testing service
 func configureFIXtest(fixOrdersRate int, fixOrdersNewPercentage int, fixOrdersMatchingPercentage int, fixClientReplicas int) (err error) {
 
 	fmt.Println("(configureFIXtest) got FIX perf test parameters: ", fixOrdersRate, fixOrdersNewPercentage, fixOrdersMatchingPercentage, fixClientReplicas)
+	serviceType := "deployment"
+
+	status := restart_loading_services_headless(fixPerfTestService, scaleMax, namespace, serviceType) //restart_loading_services(service_name string, sMax int, namespace string, serviceType string, w http.ResponseWriter, r *http.Request)
+	fmt.Println("(configureFIXtest) ", status)
 
 	return err
-
 }
 
 func (a adminPortal) handler(w http.ResponseWriter, r *http.Request) {
@@ -1248,6 +1254,75 @@ func restart_loading_services(service_name string, sMax int, namespace string, s
 	w.Write([]byte("<html><br>service status: " + theOutput + "</html>"))
 
 	logger(logFile, "done resetting system components for "+service_name)
+	return status
+}
+
+func restart_loading_services_headless(service_name string, sMax int, namespace string, serviceType string) string {
+
+	//scale down to 0, then scale up to the current max.
+	arg1 := "kubectl"
+	arg2 := "scale"
+	arg3 := serviceType //e.g "deployment","statefulset"
+	arg4 := service_name
+	arg5 := "--replicas=0"
+	arg6 := "--namespace"
+	arg7 := namespace
+
+	status := "unknown"
+
+	cmd := exec.Command(arg1, arg2, arg3, arg4, arg5, arg6, arg7)
+	logger("(restart_loading_services_headless) ", "Running command: "+arg1+" "+arg2+" "+arg3+" "+arg4+" "+arg5+" "+arg6+" "+arg7)
+
+	time.Sleep(5 * time.Second) //really should have a loop here waiting for returns ...
+
+	out, err := cmd.Output()
+
+	if err != nil {
+		logger("(restart_loading_services_headless) ", "cannot stop component: "+service_name+" error. "+err.Error())
+		return "failed"
+
+	} else {
+		logger("(restart_loading_services_headless) ", "restarted service - ok")
+		status = "ok"
+	}
+
+	temp := strings.Split(string(out), "\n")
+	theOutput := strings.Join(temp, `\n`)
+	logger("(restart_loading_services_headless) ", "restart command result: "+theOutput)
+
+	arg1 = "kubectl"
+	arg2 = "scale"
+	arg3 = serviceType
+	arg4 = service_name
+	arg5 = "--replicas=" + strconv.Itoa(sMax)
+	arg6 = "--namespace"
+	arg7 = namespace
+
+	//scale up
+	cmd = exec.Command(arg1, arg2, arg3, arg4, arg5, arg6, arg7)
+
+	logger("(restart_loading_services_headless) ", "Running command: "+arg1+" "+arg2+" "+arg3+" "+arg4+" "+arg5+" "+arg6+" "+arg7)
+
+	time.Sleep(5 * time.Second)
+
+	out, err = cmd.Output()
+
+	if err != nil {
+
+		logger("(restart_loading_services_headless) ", "cannot get status for component: "+service_name+" error. "+err.Error())
+		return "failed"
+
+	} else {
+
+		logger("(restart_loading_services_headless) ", "got service status - ok")
+		status = "ok"
+
+	}
+
+	temp = strings.Split(string(out), "\n")
+	theOutput = strings.Join(temp, `\n`)
+	logger("(restart_loading_services_headless) ", "restart command result: "+theOutput)
+	logger("(restart_loading_services_headless) ", "done resetting system components for "+service_name)
 	return status
 }
 
@@ -2379,7 +2454,7 @@ func readUserCredentialFile(uf string) []byte {
 
 }
 
-func getBatchConfig(configFilePath string) {
+func getBatchConfig() {
 
 	/*
 		var serialHistoricalTests string = os.Getenv("SERIAL_HISTORICAL_TESTS")                        // execute real orders in historical sequence
@@ -2394,22 +2469,39 @@ func getBatchConfig(configFilePath string) {
 		var syntheticSequenceEnd, _ = strconv.Atoi(os.Getenv("SYNTHETIC_SEQUENCE_END"))                // end of synthetic order sequence to generate for load
 	*/
 
+	fmt.Println("(getBatchConfig) loadEngineMode  -> ", loadEngineMode)
 	fmt.Println("(getBatchConfig) serialHistoricalTests -> ", serialHistoricalTests)
 	fmt.Println("(getBatchConfig) concurrentHistoricalTests -> ", concurrentHistoricalTests)
 	fmt.Println("(getBatchConfig) concurrentSyntheticTests -> ", concurrentSyntheticTests)
 	fmt.Println("(getBatchConfig) fixOrdersNewPercentage -> ", fixOrdersNewPercentage)
 	fmt.Println("(getBatchConfig) fixOrdersCancel -> ", fixOrdersCancel)
+	fmt.Println("(getBatchConfig) fixOrdersRate -> ", fixOrdersRate) //FIX_ORDERS_RATE
 	fmt.Println("(getBatchConfig) fixOrdersMatchingPercentage -> ", fixOrdersMatchingPercentage)
 	fmt.Println("(getBatchConfig) historicalOrdersSequenceEndTime -> ", historicalOrdersSequenceEndTime)
 	fmt.Println("(getBatchConfig) historicalOrdersSequenceStartTime -> ", historicalOrdersSequenceStartTime)
 	fmt.Println("(getBatchConfig) syntheticSequenceStart -> ", syntheticSequenceStart)
 	fmt.Println("(getBatchConfig) syntheticSequenceEnd -> ", syntheticSequenceEnd)
 
+	if loadEngineMode == "auto" {
+
+		fmt.Println("(getBatchConfig) running load performance tests automatically in batch mode: ", loadEngineMode)
+
+		scaleMax = fixClientReplicas //VARIABLIZE THIS PLEASE!
+
+		configStatus := configureFIXtest(fixOrdersRate, fixOrdersNewPercentage, fixOrdersMatchingPercentage, fixClientReplicas)
+
+		fmt.Println("(getBatchConfig) FIX configuration status: ", configStatus)
+
+	} else {
+
+		fmt.Println("(getBatchConfig) disabling automatic load tests. Execute by user via web u.i: ", loadEngineMode)
+	}
+
 }
 
 func main() {
 
-	getBatchConfig(configFilePath) //get the batch automation configuration for running load testing in unattended mode
+	getBatchConfig() //get the batch automation configuration for running load testing in unattended mode and execute batch tests if enabled
 
 	//refresh status of all synthetic user credentials in REDIS DB (DBN index 14)
 	markUserCredentialsUnused()

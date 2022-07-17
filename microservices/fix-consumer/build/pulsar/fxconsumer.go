@@ -26,26 +26,28 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
-//FIX related defaults
-var fixOrdersRate = os.Getenv("FIX_ORDERS_RATE")                    //value: 10
-var fixOrdersNewPercentage = os.Getenv("FIX_ORDERS_NEW_PERCENTAGE") //value: "50"
-var fixOrdersMatchingPercentage = os.Getenv("FIX_ORDERS_MATCHING_PERCENTAGE")
-var fixOrdersCancelPercentage = os.Getenv("FIX_ORDERS_CANCEL_PERCENTAGE") //value: "50"
-var statsPrintingRate = os.Getenv("STATS_PRINTING_RATE")                  //value: "5"
-var fixOmTargetCompId = os.Getenv("FIX_OM_TARGET_COMPID")                 //value: "testnet.fix-om.equos"
-var fixOmHostIP = os.Getenv("FIX_OM_HOST_IP")                             //value: "10.0.43.159"
-var fixOmHostPort = os.Getenv("FIX_OM_HOST_PORT")                         //value: "4802"
-var fixMdTargetCompId = os.Getenv("FIX_MD_TARGET_COMPID")                 //value: "testnet.fix-om.equos"
-var fixMdHostIp = os.Getenv("FIX_MD_HOST_IP")                             //value: "10.0.43.159"
-var fixMdHostPort = os.Getenv("FIX_MD_HOST_PORT")                         //value: 4802
-var user1Username = os.Getenv("USER1_USERNAME")                           //value: "test_eqonex_pt_22may16_indi_0lad@harakirimail.com"
-var user1Password = os.Getenv("USER1_PASSWORD")                           //value: "Diginextest@123"
-var user1CompId = os.Getenv("USER1_COMPID")                               //value: "102283"
-var configFilePath = os.Getenv("FIXTOOL_CONF_FILE")                       // path to the fix testing util config file
-var credentialFilePath = os.Getenv("FIXTOOL_CREDENTIAL_FILE")             // path to the fix testing util user credential file
+//Refresh FIX test configuration settings from configMap
+var fixOrdersRate = os.Getenv("FIX_ORDERS_RATE")                              // FIX orders per second to the FIXAPI
+var fixOrdersNewPercentage = os.Getenv("FIX_ORDERS_NEW_PERCENTAGE")           // percentage of new FIX orders in synthetic order load test (FIX API)
+var fixOrdersMatchingPercentage = os.Getenv("FIX_ORDERS_MATCHING_PERCENTAGE") //
+var fixOrdersCancelPercentage = os.Getenv("FIX_ORDERS_CANCEL")                //
+
+var statsPrintingRate = os.Getenv("STATS_PRINTING_RATE")      //value: "5"
+var fixOmTargetCompId = os.Getenv("FIX_OM_TARGET_COMPID")     //value: "testnet.fix-om.equos"
+var fixOmHostIP = os.Getenv("FIX_OM_HOST_IP")                 //value: "10.0.43.159"
+var fixOmHostPort = os.Getenv("FIX_OM_HOST_PORT")             //value: "4802"
+var fixMdTargetCompId = os.Getenv("FIX_MD_TARGET_COMPID")     //value: "testnet.fix-om.equos"
+var fixMdHostIp = os.Getenv("FIX_MD_HOST_IP")                 //value: "10.0.43.159"
+var fixMdHostPort = os.Getenv("FIX_MD_HOST_PORT")             //value: 4802
+var user1Username = os.Getenv("USER1_USERNAME")               //value: "test_eqonex_pt_22may16_indi_0lad@harakirimail.com"
+var user1Password = os.Getenv("USER1_PASSWORD")               //value: "Diginextest@123"
+var user1CompId = os.Getenv("USER1_COMPID")                   //value: "102283"
+var configFilePath = os.Getenv("FIXTOOL_CONF_FILE")           // path to the fix testing util config file
+var credentialFilePath = os.Getenv("FIXTOOL_CREDENTIAL_FILE") // path to the fix testing util user credential file
 var toolJarPath = os.Getenv("FIXTOOL_JAR_PATH")
 var instrumentFilePath = os.Getenv("FIXTOOL_INSTRUMENT_PATH")
 var FIXTestMode = os.Getenv("FIXTOOL_TEST_MODE") //Supported tet scenarios are as follows: * log - log in the users and disconnect once all the users are logged in
+
 //* ord - log in the users and place orders
 //* mkt - log in the users and listen to market data
 //* both - log in the users and place orders while listening to market da

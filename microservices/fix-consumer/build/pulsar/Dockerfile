@@ -4,7 +4,8 @@ FROM golang:1.16-alpine
 WORKDIR /app
 RUN apk update && \
     apk upgrade
-RUN apk add openjdk8=8.302.08-r2
+#RUN apk add openjdk8=8.302.08-r2
+RUN apk add openjdk8=8.322.06-r0
 RUN apk add gcc
 RUN apk add musl-dev
 RUN apk add python3
