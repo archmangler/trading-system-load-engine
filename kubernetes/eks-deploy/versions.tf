@@ -1,7 +1,7 @@
 terraform {
 
   backend "s3" {
-    bucket = "ragnarok-tfstate"
+    bucket = "engeneon-ragnarok-tfstate"
     key    = "ragnarok-eks-mjollner-dev"
     region = "ap-southeast-1"
   }
