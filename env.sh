@@ -1,6 +1,7 @@
 #!/bin/bash
 
 #Kubernetes cluster settings for AKS or EKS
+#export TOKEN="$1"
 export ENV="dev"
 export target_cloud="aws"
 export AWS_DEPLOY_REGION="ap-southeast-1"
@@ -11,9 +12,12 @@ export PUBLIC_IP_SKU="Standard"
 export IP_ALLOCATION_METHOD="static"
 export DEPLOYMENT_NAME="${AKS_CLUSTER_NAME}_SP"
 
-printf "Getting caller identity ...\n"
-AWS_ACCOUNT_NUMBER=$(aws sts get-caller-identity| jq -r '.Account')
+unset AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN AWS_ACCESS_KEY_ID
 
+export AWS_ACCOUNT_NUMBER=$2
+
+printf "Getting caller identity ...\n"
+aws sts get-caller-identity
 echo "account number: ${AWS_ACCOUNT_NUMBER}"
 
 #Assume Role method of login
