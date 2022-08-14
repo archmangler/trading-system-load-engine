@@ -736,6 +736,48 @@ func loadSyntheticData(w http.ResponseWriter, r *http.Request, start_sequence in
 	return status, err
 }
 
+func loadSyntheticDataHeadless(start_sequence int, end_sequence int) (string, error) {
+
+	logger("loadSyntheticDataHeadless", "(loadSyntheticDataHeadless) Creating synthetic data for workload ...")
+
+	status := "ok"
+	var err error
+
+	//Generate input file list and distribute among workers
+	inputQueue := generate_input_sources(start_sequence, end_sequence) //Generate the total list of inputs
+	metadata := strings.Join(inputQueue, ",")
+	logger("loadSyntheticDataHeadless", "(loadSyntheticDataHeadless) generated new workload metadata: "+metadata)
+
+	//Allocate workers to the input data
+	workCount := 0
+	namespace := "ragnarok"
+
+	//get the currently deployed worker pods in the producer pool
+	workers, cnt := get_worker_pool(workerType, namespace)
+
+	//delete the current work allocation table as it is now stale data
+	delete_stale_allocation_data(workers)
+
+	logger("loadSyntheticDataHeadless", "(loadSyntheticDataHeadless) done deleting stale allocation data. Preparing to create work allocation map ...")
+
+	//Assign message workload to worker pods
+	workAllocationMap := assign_message_workload_workers(workers, inputQueue, cnt)
+
+	//Update the work allocation in a REDIS database
+	workCount = update_work_allocation_table(workAllocationMap, workCount)
+
+	//update this global
+
+	scaleMax = workCount
+
+	//Generate the actual message  data.
+	fcnt := process_input_data(inputQueue)
+
+	logger("loadSyntheticDataHeadless", "(loadSyntheticDataHeadless) Generated new load test data: "+strconv.Itoa(fcnt))
+
+	return status, err
+}
+
 func loadHistoricalData(w http.ResponseWriter, r *http.Request) (string, error) {
 
 	status := "pending"
@@ -1066,8 +1108,9 @@ func configureFIXtest(fixOrdersRate int, fixOrdersNewPercentage int, fixOrdersMa
 	fmt.Println("(configureFIXtest) got FIX perf test parameters: ", fixOrdersRate, fixOrdersNewPercentage, fixOrdersMatchingPercentage, fixClientReplicas)
 	serviceType := "deployment"
 
+	//(1) Trigger execution of CONCURRENT FIX API load testing
 	status := restart_loading_services_headless(fixPerfTestService, scaleMax, namespace, serviceType) //restart_loading_services(service_name string, sMax int, namespace string, serviceType string, w http.ResponseWriter, r *http.Request)
-	fmt.Println("(configureFIXtest) ", status)
+	fmt.Println("(configureFIXtest) service reload testing: ", status)
 
 	return err
 }
@@ -2485,12 +2528,33 @@ func getBatchConfig() {
 	if loadEngineMode == "auto" {
 
 		fmt.Println("(getBatchConfig) running load performance tests automatically in batch mode: ", loadEngineMode)
-
-		scaleMax = fixClientReplicas //VARIABLIZE THIS PLEASE!
-
 		configStatus := configureFIXtest(fixOrdersRate, fixOrdersNewPercentage, fixOrdersMatchingPercentage, fixClientReplicas)
-
 		fmt.Println("(getBatchConfig) FIX configuration status: ", configStatus)
+
+		//(2) Trigger execution of historic Order dump from Kafka
+		serial := 0 //stream the orders to the api in original order 1 or in parallel 0
+		bootStrapOrderData(sequenceReplayDBindex, historicalOrdersSequenceStartTime, historicalOrdersSequenceEndTime, serial)
+
+		//(3) Trigger execution of HTTP historic Order API serial load
+		scaleMax = 1 //there should only be one of these per datacenter or "customer location"
+		serviceType := "statefulset"
+		//restart_loading_services_headless(service_name string, sMax int, namespace string, serviceType string)
+		status := restart_loading_services_headless(serialLoadTestService, scaleMax, namespace, serviceType) //restart_loading_services(service_name string, sMax int, namespace string, serviceType string, w http.ResponseWriter, r *http.Request)
+		fmt.Println("(getBatchConfig) status of execution of HTTP historic Order API serial load: ", status)
+
+		//(4) Trigger execution of HTTP synthetic order generation
+		status, err := loadSyntheticDataHeadless(syntheticSequenceStart, syntheticSequenceEnd)
+		fmt.Println("(getBatchConfig) Synthetic Order Data Generation Status: ", status, err)
+
+		//(5) Trigger execution of HTTP historic Order API concurrent load test
+		status = "null"
+		fmt.Println("(getBatchConfig) Restarting HTTP API synthetic orders load test ...")
+
+		//restart all services that need re-initialisation for a new load test
+		_, scaleMax := get_worker_pool(workerType, namespace)
+		serviceType = "statefulset"
+		status = restart_loading_services_headless("producer", scaleMax, namespace, serviceType)
+		fmt.Println("(getBatchConfig) Synthetic Order Data HTTP Load test trigger status: ", status, err)
 
 	} else {
 
